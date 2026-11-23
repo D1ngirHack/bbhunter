@@ -1,0 +1,35 @@
+# -----------------------------------------------------------------------------
+# Ajustes globales de BBHunter. Copia a config/settings.yaml y edítalo.
+# NUNCA subas config/settings.yaml a git (ya está en .gitignore).
+# -----------------------------------------------------------------------------
+
+# --- Claude / Anthropic ---
+# Puedes dejar la clave aquí O (mejor) exportar la variable de entorno
+# ANTHROPIC_API_KEY, que tiene prioridad sobre este valor.
+anthropic_api_key: ""                     # sk-ant-...
+anthropic_model: "claude-sonnet-5-5"      # modelo para enriquecimiento/informes
+anthropic_model_final: "claude-opus-5-5"  # modelo opcional para el informe final (más caro)
+llm_enabled: true                          # si false, usa plantillas locales sin API
+
+# --- Rutas de binarios (si no están en el PATH, pon la ruta absoluta) ---
+tools:
+  subfinder: "subfinder"
+  httpx: "httpx"
+  naabu: "naabu"
+  nuclei: "nuclei"
+  dalfox: "dalfox"
+
+# --- Límites de seguridad globales (se combinan con las reglas del scope) ---
+limits:
+  global_rate_limit_rps: 10   # tope duro, nunca se supera aunque el scope permita más
+  nuclei_concurrency: 25
+  http_timeout_s: 10
+
+# --- Modo simulación ---
+# Si true, no ejecuta herramientas reales: genera datos de ejemplo. Útil para
+# probar el pipeline/informes sin tocar ningún objetivo. Ponlo a false para real.
+dry_run: false
+
+# --- Base de datos y salidas ---
+db_path: "data/bbhunter.sqlite"
+reports_dir: "reports"

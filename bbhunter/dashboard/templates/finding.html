@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}#{{ f.id }} {{ f.name }}{% endblock %}
+{% block body %}
+<p><a href="/" class="mut">&larr; Volver</a></p>
+<h2>#{{ f.id }} — {{ f.name }}</h2>
+
+<div class="card">
+  <span class="chip {{ f.vrt_tier }}">{{ f.vrt_tier }}</span>
+  <span class="chip {{ f.severity }}">{{ f.severity }}</span>
+  <span class="mut">CVSS {{ "%.1f"|format(f.cvss_score or 0) }} — <code>{{ f.cvss_vector }}</code></span>
+  <br><br>
+  <strong>Activo:</strong> <code>{{ f.url }}</code>
+  {% if f.param %} &nbsp; <strong>Parámetro:</strong> <code>{{ f.param }}</code>{% endif %}
+  <br><strong>Clase:</strong> {{ f.vuln_class }} &nbsp; <strong>Estado:</strong>
+  <span class="chip st-{{ f.status }}">{{ f.status }}</span>
+</div>
+
+<div class="card">
+  <form method="post" action="/finding/{{ f.id }}/status" style="display:inline">
+    <label class="mut">Cambiar estado:</label>
+    <select name="status">
+      {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s==f.status else '' }}>{{ s }}</option>{% endfor %}
+    </select>
+    <button type="submit">Guardar</button>
+  </form>
+  <form method="post" action="/finding/{{ f.id }}/report" style="display:inline; margin-left:1rem">
+    <button type="submit">Generar informe (MD/HTML)</button>
+  </form>
+</div>
+
+{% if f.explanation %}
+<div class="card">
+  <h2>Resumen</h2><p>{{ f.explanation }}</p>
+  <h2>Pasos para reproducir</h2><pre>{{ f.reproduction }}</pre>
+  <h2>Impacto</h2><p>{{ f.impact }}</p>
+  <h2>Remediación</h2><p>{{ f.remediation }}</p>
+</div>
+{% else %}
+<div class="card mut">Sin enriquecer. Ejecuta <code>bbhunter enrich</code> para generar el contenido del informe.</div>
+{% endif %}
+
+<div class="card">
+  <h2>Evidencia</h2>
+  <pre>{{ evidence }}</pre>
+</div>
+
+<div class="card">
+  <h2>Vista previa del informe (Markdown)</h2>
+  <pre>{{ markdown }}</pre>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+# -----------------------------------------------------------------------------
+# Mapeo de severidad: CVSS v3.1 -> VRT de Bugcrowd (P1-P5) + rangos orientativos.
+# Los rangos de pago son SOLO orientativos; cada programa define los suyos.
+# Referencias: Bugcrowd VRT (https://bugcrowd.com/vulnerability-rating-taxonomy),
+#              CVSS v3.1 (https://www.first.org/cvss/).
+# -----------------------------------------------------------------------------
+
+# Corte de CVSS score a severidad cualitativa (CVSS v3.1 oficial).
+cvss_bands:
+  - { min: 9.0, max: 10.0, severity: "Critical" }
+  - { min: 7.0, max: 8.9,  severity: "High" }
+  - { min: 4.0, max: 6.9,  severity: "Medium" }
+  - { min: 0.1, max: 3.9,  severity: "Low" }
+  - { min: 0.0, max: 0.0,  severity: "Informational" }
+
+# Mapeo severidad -> tier VRT (aproximación; el VRT real depende de la clase).
+severity_to_tier:
+  Critical: "P1"
+  High: "P2"
+  Medium: "P3"
+  Low: "P4"
+  Informational: "P5"
+
+# Descripción de cada tier y rango de pago orientativo (USD).
+tiers:
+  P1:
+    name: "Crítico"
+    examples: "RCE, SQLi con exfiltración, auth bypass crítico, SSRF a interno con impacto."
+    typical_bounty_usd: "2000 - 20000+"
+  P2:
+    name: "Alto"
+    examples: "XSS almacenado autenticado, IDOR sensible, SSRF ciego, subida de ficheros peligrosa."
+    typical_bounty_usd: "750 - 5000"
+  P3:
+    name: "Medio"
+    examples: "Reflected XSS, CSRF con impacto, exposición de datos moderada, open redirect encadenable."
+    typical_bounty_usd: "150 - 1000"
+  P4:
+    name: "Bajo"
+    examples: "Fugas de información menores, configuraciones débiles, headers faltantes con impacto."
+    typical_bounty_usd: "50 - 250"
+  P5:
+    name: "Informativo"
+    examples: "Buenas prácticas, hallazgos sin impacto demostrable. Normalmente NO se paga."
+    typical_bounty_usd: "0"

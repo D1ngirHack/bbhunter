@@ -1,0 +1,26 @@
+# Datos sensibles y salidas
+data/
+reports/
+config/settings.yaml
+config/scope.yaml
+*.sqlite
+*.sqlite3
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secretos
+.env
+*.key
+
+# SO / editor
+.DS_Store
+desktop.ini
+.idea/
+.vscode/

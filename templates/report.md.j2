@@ -1,0 +1,58 @@
+# {{ f.name }}
+
+| Campo | Valor |
+|---|---|
+| **Programa** | {{ scope.program }} ({{ scope.platform }}) |
+| **Severidad** | {{ f.severity }} |
+| **CVSS v3.1** | {{ "%.1f"|format(f.cvss_score or 0) }} — `{{ f.cvss_vector }}` |
+| **Tier (VRT)** | {{ f.vrt_tier }}{% if tier_info %} — {{ tier_info.name }} (orientativo: {{ tier_info.typical_bounty_usd }} USD){% endif %} |
+| **Clase** | {{ kb.display }} |
+| **CWE / OWASP** | {{ kb.cwe }} / {{ kb.owasp }} |
+| **Activo afectado** | `{{ f.url }}` |
+{% if f.param %}| **Parámetro** | `{{ f.param }}` |
+{% endif %}| **Fecha** | {{ now }} |
+
+---
+
+## Resumen
+
+{{ f.explanation }}
+
+## Pasos para reproducir
+
+{{ f.reproduction }}
+
+## Prueba de concepto (evidencia)
+
+{% if evidence.payload %}**Payload:** `{{ evidence.payload }}`
+
+{% endif %}{% if evidence.request %}**Petición:**
+```http
+{{ evidence.request }}
+```
+
+{% endif %}{% if evidence.response %}**Respuesta (fragmento):**
+```http
+{{ evidence.response }}
+```
+
+{% endif %}{% if evidence.extracted %}**Datos extraídos:** {{ evidence.extracted }}
+
+{% endif %}> _Adjunta aquí las capturas de pantalla que demuestren la ejecución/acceso._
+
+## Impacto
+
+{{ f.impact }}
+
+## Remediación
+
+{{ f.remediation }}
+
+## Referencias
+
+{% for ref in refs %}- {{ ref }}
+{% endfor %}
+
+---
+
+<sub>Informe generado por BBHunter. Contenido redactado por: {{ llm_source }}. Debe ser revisado y validado manualmente antes de su envío. Probar solo dentro del scope autorizado.</sub>

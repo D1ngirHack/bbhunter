@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BBHunter — {% block title %}{% endblock %}</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --fg:#e6e6e6; --mut:#9aa0aa; --acc:#e74c3c; --line:#2a2e38; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--fg); }
+  header { background:#141821; padding:.9rem 1.2rem; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:1rem; }
+  header h1 { font-size:1.1rem; margin:0; } header a { color:var(--fg); text-decoration:none; }
+  .wrap { max-width:1100px; margin:1.2rem auto; padding:0 1rem; }
+  .chip { display:inline-block; padding:.15rem .5rem; border-radius:10px; font-size:.75rem; font-weight:600; }
+  .P1,.Critical{background:#7b241c;color:#fff}.P2,.High{background:#c0392b;color:#fff}
+  .P3,.Medium{background:#b9770e;color:#fff}.P4,.Low{background:#2471a3;color:#fff}
+  .P5,.Informational{background:#566573;color:#fff}
+  .st-new{background:#34495e;color:#fff}.st-validated{background:#1e8449;color:#fff}
+  .st-false_positive{background:#515a5a;color:#fff}.st-duplicate{background:#5d6d7e;color:#fff}
+  .st-ready{background:#9a7d0a;color:#fff}.st-reported{background:#1a5276;color:#fff}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:8px;overflow:hidden}
+  th,td{padding:.6rem .7rem;text-align:left;border-bottom:1px solid var(--line);font-size:.9rem}
+  th{background:#202430;color:var(--mut);font-weight:600}
+  tr:hover td{background:#20242e}
+  a.btn,button{background:var(--acc);color:#fff;border:0;padding:.45rem .8rem;border-radius:6px;cursor:pointer;font-size:.85rem;text-decoration:none;display:inline-block}
+  .tabs a{margin-right:.4rem;padding:.3rem .7rem;border-radius:6px;background:#1c2029;color:var(--mut);font-size:.85rem}
+  .tabs a.on{background:var(--acc);color:#fff}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1.1rem 1.3rem;margin:1rem 0}
+  pre{background:#0c0e12;border:1px solid var(--line);padding:.8rem;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:.82rem}
+  code{background:#0c0e12;padding:.1rem .3rem;border-radius:4px}
+  .mut{color:var(--mut)} h2{border-bottom:1px solid var(--line);padding-bottom:.3rem;font-size:1.05rem}
+  select{background:#0c0e12;color:var(--fg);border:1px solid var(--line);padding:.4rem;border-radius:6px}
+  .banner{background:#2a1515;border:1px solid #5b2a2a;color:#f0c8c8;padding:.6rem .9rem;border-radius:6px;font-size:.82rem;margin-bottom:1rem}
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">🛡️ BBHunter</a></h1>
+  <span class="mut">Panel de triaje — valida antes de enviar</span>
+</header>
+<div class="wrap">
+  <div class="banner">Recuerda: valida manualmente cada hallazgo y envíalo tú desde la plataforma. BBHunter no envía reportes automáticamente.</div>
+  {% block body %}{% endblock %}
+</div>
+</body>
+</html>

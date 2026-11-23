@@ -1,0 +1,83 @@
+# -----------------------------------------------------------------------------
+# Base de conocimiento de clases de vulnerabilidad (MVP: 2 clases curadas + genérico).
+# Se usa para enriquecer hallazgos cuando Claude no está disponible y como contexto
+# que se le pasa a Claude cuando sí lo está.
+#
+# La clase se decide a partir de etiquetas/tags de nuclei o del tipo de hallazgo.
+# -----------------------------------------------------------------------------
+
+classes:
+
+  # ---------- CLASE A: Exposiciones y malas configuraciones ----------
+  exposure:
+    display: "Exposición de información sensible / mala configuración"
+    match_tags: ["exposure", "exposures", "config", "misconfig", "disclosure", "files", "backup", "git", "env", "default-login"]
+    cwe: "CWE-200"
+    owasp: "A05:2021 - Security Misconfiguration"
+    default_cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"  # 7.5 High
+    explanation: >
+      Un recurso que debería ser privado (fichero de configuración, repositorio .git,
+      fichero .env, panel administrativo, copia de seguridad, listado de directorios)
+      es accesible públicamente sin autenticación. Esto puede revelar credenciales,
+      claves de API, código fuente, rutas internas o datos de usuarios.
+    impact: >
+      Según lo expuesto, un atacante puede obtener credenciales o secretos que permitan
+      acceso no autorizado, moverse lateralmente o comprometer datos de clientes.
+    remediation: >
+      Retirar el recurso del acceso público, aplicar autenticación/autorización,
+      bloquear rutas sensibles en el servidor web, rotar cualquier secreto expuesto
+      y revisar la configuración de despliegue para evitar regresiones.
+    references:
+      - "https://owasp.org/Top10/A05_2021-Security_Misconfiguration/"
+      - "https://cwe.mitre.org/data/definitions/200.html"
+    validation_checklist:
+      - "Confirmar que el recurso carga sin autenticación desde una IP/sesión limpia."
+      - "Verificar que el contenido es realmente sensible (no un placeholder)."
+      - "Guardar la URL exacta y la respuesta como evidencia (sin exfiltrar datos de más)."
+
+  # ---------- CLASE B: Reflected XSS ----------
+  xss_reflected:
+    display: "Cross-Site Scripting (reflejado)"
+    match_tags: ["xss", "rxss", "reflected"]
+    cwe: "CWE-79"
+    owasp: "A03:2021 - Injection"
+    default_cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"  # 6.1 Medium
+    explanation: >
+      La aplicación refleja entrada del usuario en la respuesta HTML sin sanearla ni
+      codificarla, permitiendo inyectar y ejecutar JavaScript en el navegador de la
+      víctima dentro del contexto del sitio.
+    impact: >
+      Un atacante puede robar cookies de sesión, realizar acciones en nombre de la
+      víctima, desfigurar contenido o encadenar hacia la toma de cuenta si se combina
+      con otras debilidades.
+    remediation: >
+      Codificar la salida según el contexto (HTML, atributo, JS, URL), validar entrada
+      en servidor, aplicar una Content-Security-Policy restrictiva y usar frameworks que
+      escapen por defecto.
+    references:
+      - "https://owasp.org/www-community/attacks/xss/"
+      - "https://cwe.mitre.org/data/definitions/79.html"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+    validation_checklist:
+      - "Reproducir con un payload benigno (p.ej. alert(document.domain)) en un navegador real."
+      - "Confirmar que el payload NO queda codificado/escapado en la respuesta."
+      - "Identificar el parámetro exacto y el contexto de reflexión."
+      - "Capturar screenshot del popup/ejecución como PoC."
+
+  # ---------- Fallback genérico ----------
+  generic:
+    display: "Hallazgo genérico"
+    match_tags: []
+    cwe: "CWE-0"
+    owasp: "N/A"
+    default_cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"  # 5.3 Medium
+    explanation: >
+      Hallazgo reportado por el escáner que requiere análisis manual para determinar
+      su validez e impacto real.
+    impact: "Por determinar tras la validación manual."
+    remediation: "Depende de la naturaleza concreta del hallazgo tras validarlo."
+    references:
+      - "https://owasp.org/www-project-web-security-testing-guide/"
+    validation_checklist:
+      - "Revisar manualmente la salida del escáner y descartar falso positivo."
+      - "Determinar impacto real antes de reportar."

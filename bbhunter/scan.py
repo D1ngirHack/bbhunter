@@ -1,0 +1,148 @@
+"""Escaneo de vulnerabilidades: nuclei (general) + dalfox (XSS reflejado).
+
+Todo se ejecuta SOLO contra assets in-scope y respetando el rate limit. Cada
+hallazgo se clasifica, se puntua (CVSS/VRT) y se deduplica antes de guardarse.
+"""
+from __future__ import annotations
+
+from rich.console import Console
+
+from . import knowledge, tools
+from .config import Settings
+from .db import DB
+from .findings import dedup_hash
+from .scope import Scope
+
+console = Console()
+
+
+def _store(db: DB, scope: Scope, vuln_class: str, name: str, template_id: str,
+           url: str, param: str, evidence: dict) -> bool:
+    spec = knowledge.kb_for(vuln_class)
+    grade = knowledge.grade(spec["default_cvss_vector"])
+    h = dedup_hash(scope.program, vuln_class, template_id, url, param)
+    inserted = db.insert_finding(
+        scope.program, h,
+        vuln_class=vuln_class,
+        name=name,
+        template_id=template_id,
+        url=url,
+        param=param,
+        severity=grade["severity"],
+        cvss_score=grade["cvss_score"],
+        cvss_vector=grade["cvss_vector"],
+        vrt_tier=grade["vrt_tier"],
+        evidence=evidence,
+        refs=spec.get("references", []),
+        status="new",
+    )
+    return inserted
+
+
+def _dry_run_findings(db: DB, scope: Scope, urls: list[str]) -> int:
+    """Genera hallazgos de ejemplo para probar el pipeline sin herramientas."""
+    if not urls:
+        return 0
+    n = 0
+    target = urls[0]
+    samples = [
+        ("exposure", "Fichero .env expuesto", "exposed-env-file",
+         target.rstrip("/") + "/.env", "",
+         {"request": f"GET /.env HTTP/1.1\nHost: {target}",
+          "response": "DB_PASSWORD=supersecret123\nAWS_SECRET_ACCESS_KEY=AKIA..."}),
+        ("exposure", "Repositorio .git accesible", "exposed-git-config",
+         target.rstrip("/") + "/.git/config", "",
+         {"request": f"GET /.git/config HTTP/1.1\nHost: {target}",
+          "response": "[core]\n repositoryformatversion = 0\n[remote \"origin\"]..."}),
+        ("xss_reflected", "Reflected XSS en parametro de busqueda", "reflected-xss",
+         target.rstrip("/") + "/search?q=FUZZ", "q",
+         {"payload": "<script>alert(document.domain)</script>",
+          "request": f"GET /search?q=<script>alert(document.domain)</script> HTTP/1.1\nHost: {target}",
+          "response": "...<div>Resultados para <script>alert(document.domain)</script></div>..."}),
+    ]
+    for vuln_class, name, tid, url, param, ev in samples:
+        if _store(db, scope, vuln_class, name, tid, url, param, ev):
+            n += 1
+    return n
+
+
+def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
+    if not tools.tool_available(settings.tools.nuclei):
+        console.print("[yellow]nuclei no disponible: se omite el escaneo nuclei.[/yellow]")
+        return 0
+    if not scope.rules.allow_active_scan:
+        console.print("[red]El scope no permite escaneo activo: se omite nuclei.[/red]")
+        return 0
+    rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
+    stdin = "\n".join(urls)
+    cmd = [
+        settings.tools.nuclei, "-silent", "-jsonl",
+        "-rate-limit", str(rps),
+        "-concurrency", str(settings.limits.nuclei_concurrency),
+        "-severity", "low,medium,high,critical",
+    ]
+    code, out, err = tools.run(cmd, timeout=3600, input_text=stdin)
+    n = 0
+    for obj in tools.iter_jsonl(out):
+        info = obj.get("info", {})
+        tags = info.get("tags", [])
+        name = info.get("name", obj.get("template-id", "hallazgo"))
+        template_id = obj.get("template-id", "")
+        url = obj.get("matched-at") or obj.get("host") or ""
+        if not url or not scope.is_allowed(url):
+            continue
+        vuln_class = knowledge.classify(tags, name)
+        evidence = {
+            "matched_at": obj.get("matched-at", ""),
+            "extracted": obj.get("extracted-results", []),
+            "nuclei_severity": info.get("severity", ""),
+            "request": obj.get("request", ""),
+            "response": (obj.get("response", "") or "")[:4000],
+        }
+        if _store(db, scope, vuln_class, name, template_id, url, "", evidence):
+            n += 1
+    return n
+
+
+def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
+    if not tools.tool_available(settings.tools.dalfox):
+        return 0
+    # Solo URLs con parametros son candidatas a XSS reflejado.
+    candidates = [u for u in urls if "?" in u and scope.is_allowed(u)]
+    if not candidates:
+        return 0
+    n = 0
+    rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
+    for url in candidates:
+        cmd = [settings.tools.dalfox, "url", url, "--silence", "--format", "json",
+               "--delay", str(int(1000 / max(1, rps)))]
+        code, out, _ = tools.run(cmd, timeout=600)
+        for obj in tools.iter_jsonl(out):
+            param = obj.get("param", "")
+            evidence = {"payload": obj.get("data", ""), "cwe": obj.get("cwe", ""),
+                        "request": obj.get("message_str", "")}
+            if _store(db, scope, "xss_reflected", "Reflected XSS (dalfox)",
+                      "dalfox", url, param, evidence):
+                n += 1
+    return n
+
+
+def run_scan(scope: Scope, settings: Settings, db: DB) -> int:
+    urls = db.live_urls(scope.program)
+    if not urls:
+        console.print("[yellow]No hay assets. Ejecuta primero el recon.[/yellow]")
+        return 0
+    # Doble verificacion de scope antes de escanear.
+    urls, rejected = scope.filter_allowed(urls)
+    if rejected:
+        console.print(f"[dim]{len(rejected)} assets descartados por scope antes de escanear.[/dim]")
+
+    console.print(f"[bold]Escaneo[/bold] sobre [green]{len(urls)}[/green] assets in-scope")
+    total = 0
+    if settings.dry_run:
+        total += _dry_run_findings(db, scope, urls)
+    else:
+        total += run_nuclei(db, scope, settings, urls)
+        total += run_dalfox(db, scope, settings, urls)
+    console.print(f"  Nuevos hallazgos (sin duplicados): [green]{total}[/green]")
+    return total

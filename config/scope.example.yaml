@@ -1,0 +1,28 @@
+# -----------------------------------------------------------------------------
+# Scope de un programa de bug bounty.
+# Copia este fichero a config/scope.yaml y edítalo con el scope REAL del programa
+# que vas a probar. SOLO escanea lo que el programa autoriza explícitamente.
+# -----------------------------------------------------------------------------
+
+program: "ejemplo-programa"            # Nombre/slug del programa
+platform: "hackerone"                   # hackerone | bugcrowd | yeswehack | intigriti | privado
+policy_url: "https://hackerone.com/ejemplo"   # URL de la política/scope del programa
+
+# Dominios autorizados. Se admite wildcard con "*." al inicio.
+in_scope:
+  - "*.ejemplo.com"
+  - "api.ejemplo.com"
+  - "ejemplo.com"
+
+# Explícitamente fuera de scope (tiene prioridad sobre in_scope).
+out_of_scope:
+  - "blog.ejemplo.com"
+  - "*.dev.ejemplo.com"
+  - "soporte.ejemplo.com"
+
+# Reglas del programa que debemos respetar.
+rules:
+  rate_limit_rps: 5          # peticiones por segundo máximas (respeta la política)
+  allow_active_scan: true    # ¿permite escaneo activo de vulnerabilidades?
+  allow_automated_tools: true  # OJO: muchos programas lo prohíben. Confírmalo en la política.
+  notes: "Rellena aquí cualquier restricción específica del programa."

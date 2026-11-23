@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ scope.program }}{% endblock %}
+{% block body %}
+<h2>{{ scope.program }} <span class="mut">({{ scope.platform }})</span></h2>
+
+<div class="tabs" style="margin:.8rem 0">
+  <a href="/" class="{{ 'on' if not active else '' }}">Todos</a>
+  {% for s in statuses %}
+    <a href="/?status={{ s }}" class="{{ 'on' if active==s else '' }}">{{ s }} ({{ counts[s] }})</a>
+  {% endfor %}
+</div>
+
+<table>
+  <tr><th>#</th><th>Tier</th><th>Sev</th><th>CVSS</th><th>Clase</th><th>Nombre</th><th>Activo</th><th>Estado</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/finding/{{ r.id }}">{{ r.id }}</a></td>
+    <td><span class="chip {{ r.vrt_tier }}">{{ r.vrt_tier }}</span></td>
+    <td><span class="chip {{ r.severity }}">{{ r.severity }}</span></td>
+    <td>{{ "%.1f"|format(r.cvss_score or 0) }}</td>
+    <td class="mut">{{ r.vuln_class }}</td>
+    <td><a href="/finding/{{ r.id }}">{{ (r.name or '')[:46] }}</a></td>
+    <td class="mut"><code>{{ (r.url or '')[:40] }}</code></td>
+    <td><span class="chip st-{{ r.status }}">{{ r.status }}</span></td>
+  </tr>
+  {% endfor %}
+  {% if not rows %}<tr><td colspan="8" class="mut">No hay hallazgos. Ejecuta <code>bbhunter run</code>.</td></tr>{% endif %}
+</table>
+{% endblock %}
