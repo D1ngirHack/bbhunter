@@ -1,6 +1,6 @@
 """Tests de severidad y de renderizado de informes."""
 from bbhunter import knowledge
-from bbhunter.report import render_markdown, render_html
+from bbhunter.report import render_html, render_markdown
 from bbhunter.scope import Scope
 
 

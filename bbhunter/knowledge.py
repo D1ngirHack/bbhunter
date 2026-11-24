@@ -4,22 +4,21 @@ de severidad: CVSS v3.1 -> score -> severidad -> tier VRT (P1-P5).
 from __future__ import annotations
 
 import functools
-from pathlib import Path
 
 import yaml
 
-from .config import ROOT
+from .config import RESOURCES
 
 
 @functools.lru_cache(maxsize=1)
 def vrt_mapping() -> dict:
-    with open(ROOT / "knowledge" / "vrt_mapping.yaml", "r", encoding="utf-8") as fh:
+    with open(RESOURCES / "knowledge" / "vrt_mapping.yaml", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
 @functools.lru_cache(maxsize=1)
 def vuln_kb() -> dict:
-    with open(ROOT / "knowledge" / "vuln_kb.yaml", "r", encoding="utf-8") as fh:
+    with open(RESOURCES / "knowledge" / "vuln_kb.yaml", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 

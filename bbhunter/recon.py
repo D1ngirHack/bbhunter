@@ -12,9 +12,14 @@ from . import tools
 from .audit import Auditor
 from .config import Settings
 from .db import DB
-from .scope import Scope
+from .scope import Scope, parse_target
 
 console = Console()
+
+
+def _host_of(url: str) -> str:
+    t = parse_target(url)
+    return t.host if t else ""
 
 
 def _auditor(scope: Scope, settings: Settings) -> Auditor:
@@ -22,12 +27,8 @@ def _auditor(scope: Scope, settings: Settings) -> Auditor:
 
 
 def _seed_domains(scope: Scope) -> list[str]:
-    """Dominios base del scope para arrancar (quita el '*.' de los wildcard)."""
-    seeds = []
-    for pat in scope.in_scope:
-        pat = pat.strip().lower()
-        seeds.append(pat[2:] if pat.startswith("*.") else pat)
-    return sorted(set(seeds))
+    """Dominios base del scope para la enumeracion pasiva (sin '*.', sin IP/CIDR)."""
+    return scope.seed_domains()
 
 
 def enumerate_subdomains(scope: Scope, settings: Settings, aud: Auditor | None = None) -> list[str]:
@@ -50,11 +51,29 @@ def enumerate_subdomains(scope: Scope, settings: Settings, aud: Auditor | None =
                           phase="recon", targets=[seed], timeout=600)
             found.update(tools.lines(res.stdout))  # aun con fallo, se usa lo que devolvio
 
-    # Filtro de scope DURO
-    allowed, rejected = scope.filter_allowed(sorted(found))
+    # IPs sueltas del scope: no se enumeran, se sondean tal cual. Los CIDR no se expanden.
+    found.update(scope.seed_ips())
+
+    # Filtro de scope DURO a nivel de host (puerto y ruta se aplican al sondear).
+    allowed = sorted(h for h in found if scope.host_candidate(h))
+    rejected = len(found) - len(allowed)
     if rejected:
-        console.print(f"[dim]Descartados {len(rejected)} subdominios fuera de scope.[/dim]")
+        console.print(f"[dim]Descartados {rejected} subdominios fuera de scope.[/dim]")
     return allowed
+
+
+def _probe_inputs(subdomains: list[str], scope: Scope) -> list[str]:
+    """host, host:puerto o URL con ruta, segun los patrones que cubren cada host."""
+    out: list[str] = []
+    for sd in subdomains:
+        for item in scope.probe_targets(sd):
+            if item not in out:
+                out.append(item)
+    return out
+
+
+def _assumed_url(item: str) -> str:
+    return item if "://" in item else f"https://{item}"
 
 
 def probe_live(subdomains: list[str], scope: Scope, settings: Settings,
@@ -63,13 +82,16 @@ def probe_live(subdomains: list[str], scope: Scope, settings: Settings,
     aud = aud or _auditor(scope, settings)
     results: list[dict] = []
 
+    inputs = _probe_inputs(subdomains, scope)
+
     if settings.dry_run or not tools.tool_available(settings.tools.httpx):
-        for sd in subdomains:
+        for item in inputs:
+            url = _assumed_url(item)
             results.append({
-                "url": f"https://{sd}",
-                "host": sd,
+                "url": url,
+                "host": _host_of(url),
                 "ip": "203.0.113.10" if settings.dry_run else "",
-                "port": 443,
+                "port": parse_target(url).port,
                 "tech": "nginx, React" if settings.dry_run else "",
                 "source": "dry_run" if settings.dry_run else "no-httpx",
             })
@@ -78,7 +100,7 @@ def probe_live(subdomains: list[str], scope: Scope, settings: Settings,
             aud.skip("httpx", phase="recon", reason="binario no encontrado; URLs supuestas (no-httpx)")
         return [r for r in results if scope.is_allowed(r["url"])]
 
-    if not subdomains:
+    if not inputs:
         return []
     rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
     cmd = [
@@ -88,8 +110,8 @@ def probe_live(subdomains: list[str], scope: Scope, settings: Settings,
         "-tech-detect", "-status-code", "-title",
         *tools.traffic_args("httpx", scope.request_headers, settings.proxy),
     ]
-    res = aud.run("httpx", cmd, phase="recon", targets=subdomains, rate_limit=rps,
-                  timeout=900, input_text="\n".join(subdomains))
+    res = aud.run("httpx", cmd, phase="recon", targets=inputs, rate_limit=rps,
+                  timeout=900, input_text="\n".join(inputs))
     for obj in tools.iter_jsonl(res.stdout):
         url = obj.get("url") or obj.get("input") or ""
         if not url or not scope.is_allowed(url):
@@ -121,9 +143,11 @@ def run_recon(scope: Scope, settings: Settings, db: DB) -> list[dict]:
         console.print("  [yellow]allow_active_scan=false: sin sondeo httpx. "
                       "Los subdominios se guardan como candidatos NO verificados.[/yellow]")
         aud.skip("httpx", phase="recon", reason="allow_active_scan=false (modo pasivo)")
-        for sd in subs:
-            db.upsert_asset(scope.program, url=f"https://{sd}", host=sd,
-                            source="pasivo-sin-sondeo")
+        for item in _probe_inputs(subs, scope):
+            url = _assumed_url(item)
+            if scope.is_allowed(url):
+                db.upsert_asset(scope.program, url=url, host=_host_of(url),
+                                source="pasivo-sin-sondeo")
         aud.summary("recon")
         return []
     live = probe_live(subs, scope, settings, aud)

@@ -15,7 +15,7 @@ HEADERS = {"X-Bug-Bounty": "jonay-h1"}
 
 
 def _scope(**kw) -> Scope:
-    return Scope(program="p", in_scope=["*.example.test"], rules=ScopeRules(), **kw)
+    return Scope(program="p", in_scope=["*.example.test", "example.test"], rules=ScopeRules(), **kw)
 
 
 @pytest.fixture

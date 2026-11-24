@@ -3,6 +3,8 @@
 Todo se ejecuta SOLO contra assets in-scope y respetando el rate limit. Cada
 hallazgo se clasifica, se puntua (CVSS/VRT) y se deduplica antes de guardarse.
 
+- nuclei usa la politica de plantillas del programa (scope.nuclei): allowlist,
+  tags excluidas, severidades y -no-interactsh salvo que se permita.
 - El trafico lleva las cabeceras del programa (scope.request_headers) y, si se
   configura, pasa por settings.proxy (p.ej. Burp).
 - Cada ejecucion queda en el registro de auditoria y los fallos se notifican.
@@ -75,6 +77,8 @@ def _dry_run_findings(db: DB, scope: Scope, settings: Settings, urls: list[str])
           "response": "...<div>Resultados para <script>alert(document.domain)</script></div>..."}),
     ]
     for vuln_class, name, tid, url, param, ev in samples:
+        if not scope.is_allowed(url):
+            continue
         if _store(db, scope, settings, vuln_class, name, tid, url, param, ev):
             n += 1
     return n
@@ -95,12 +99,18 @@ def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str],
         console.print("[red]El scope no permite escaneo activo: se omite nuclei.[/red]")
         aud.skip("nuclei", phase="scan", reason="politica del scope")
         return 0
+    if scope.has_path_patterns() and not scope.nuclei.is_allowlist():
+        console.print("[red]El scope limita rutas y no hay allowlist de plantillas "
+                      "(nuclei.templates / template_ids / tags): se omite nuclei.[/red]")
+        aud.skip("nuclei", phase="scan",
+                 reason="scope limitado por ruta sin allowlist de plantillas")
+        return 0
     rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
     cmd = [
         settings.tools.nuclei, "-silent", "-jsonl",
         "-rate-limit", str(rps),
         "-concurrency", str(settings.limits.nuclei_concurrency),
-        "-severity", "low,medium,high,critical",
+        *scope.nuclei.args(),   # allowlist/exclusiones/severidad/-no-interactsh del programa
         *tools.traffic_args("nuclei", scope.request_headers, settings.proxy),
     ]
     res = aud.run("nuclei", cmd, phase="scan", targets=urls, rate_limit=rps,

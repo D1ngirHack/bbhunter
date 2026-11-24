@@ -8,7 +8,13 @@ program: "ejemplo-programa"            # Nombre/slug del programa
 platform: "hackerone"                   # hackerone | bugcrowd | yeswehack | intigriti | privado
 policy_url: "https://hackerone.com/ejemplo"   # URL de la política/scope del programa
 
-# Dominios autorizados. Se admite wildcard con "*." al inicio.
+# Activos autorizados. Formatos admitidos (también en out_of_scope):
+#   "app.ejemplo.com"              host exacto, cualquier puerto y ruta
+#   "*.ejemplo.com"                subdominios (el apex solo con wildcard_includes_apex: true)
+#   "app.ejemplo.com:8443"         solo ese puerto
+#   "https://app.ejemplo.com/api/" solo esa ruta y lo que cuelga de ella (https => puerto 443)
+#   "203.0.113.10" / "203.0.113.0/24"  IP o CIDR: solo casa con objetivos escritos como IP
+#                                  (BBHunter nunca resuelve DNS para decidir el scope)
 in_scope:
   - "*.ejemplo.com"
   - "api.ejemplo.com"
@@ -25,9 +31,22 @@ rules:
   rate_limit_rps: 5          # peticiones por segundo máximas (respeta la política)
   allow_active_scan: true    # false => sin scan; recon solo pasivo (sin httpx). Bloqueo real.
   allow_automated_tools: true  # false => recon/scan/run bloqueados. Confírmalo en la política.
+  wildcard_includes_apex: false  # true solo si la política dice que *.ejemplo.com cubre ejemplo.com
   notes: "Rellena aquí cualquier restricción específica del programa."
 
 # Cabeceras que el programa exige en TODO tu tráfico (las pasa a httpx, nuclei y dalfox).
 # Muchos programas piden identificarte; copia el nombre y formato EXACTOS de su política.
 request_headers: {}
 #  X-Bug-Bounty: "tu-usuario-de-hackerone"
+
+# Plantillas de nuclei permitidas para este programa (allowlist).
+# Si templates, template_ids y tags están vacíos se usan todas las instaladas,
+# filtradas por severity y exclude_tags. Con un in_scope limitado por RUTA, nuclei
+# no se ejecuta sin allowlist (muchas plantillas atacan la raíz del host).
+nuclei:
+  templates: []        # -t   p. ej. "http/exposures/configs/"
+  template_ids: []     # -id  p. ej. "git-config"
+  tags: []             # -tags p. ej. "exposure,misconfig"
+  exclude_tags: ["dos", "fuzz", "intrusive", "bruteforce", "brute-force"]
+  severity: ["low", "medium", "high", "critical"]
+  allow_interactsh: false   # false => -no-interactsh (sin callbacks OAST a servidores de terceros)

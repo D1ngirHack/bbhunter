@@ -23,8 +23,9 @@ import re
 import sqlite3
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from email.utils import parsedate_to_datetime
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlparse
 
 from . import knowledge

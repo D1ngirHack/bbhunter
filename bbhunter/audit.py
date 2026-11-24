@@ -18,7 +18,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -52,7 +52,7 @@ class Auditor:
 
     # ------------------------------------------------------------------ registro
     def _write(self, entry: dict) -> None:
-        entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        entry = {"ts": datetime.now(UTC).isoformat(timespec="seconds"),
                  "program": self.program, **entry}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a", encoding="utf-8") as fh:
@@ -118,7 +118,7 @@ def read_entries(path: Path, last: int = 20, failed_only: bool = False) -> list[
     if not path.exists():
         return []
     entries = []
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         for line in fh:
             try:
                 e = json.loads(line)

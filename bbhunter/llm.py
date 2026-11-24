@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import json
 
-from .config import Settings
 from . import knowledge, references
+from .config import Settings
 from .redact import redact_obj
 
 SYSTEM_PROMPT = (

@@ -1,7 +1,11 @@
 """CLI de BBHunter (Typer).
 
+Opcion global: --program/-p NOMBRE (o BBHUNTER_PROGRAM) usa programs/NOMBRE/scope.yaml
+(y programs/NOMBRE/settings.yaml si existe) en lugar de config/.
+
 Comandos principales:
-  bbhunter init                 Crea config/scope.yaml y settings.yaml desde los ejemplos.
+  bbhunter init [--program X]   Crea la configuracion desde los ejemplos.
+  bbhunter programs             Lista los programas de programs/.
   bbhunter scope-check URL      Comprueba si un objetivo esta en scope.
   bbhunter recon                Enumeracion + hosts vivos.
   bbhunter scan                 Escaneo de vulnerabilidades (pide autorizacion).
@@ -17,7 +21,7 @@ Comandos principales:
 """
 from __future__ import annotations
 
-import shutil
+import os
 
 import typer
 from rich.console import Console
@@ -27,9 +31,16 @@ from . import enrich as enrich_mod
 from . import recon as recon_mod
 from . import report as report_mod
 from . import scan as scan_mod
-from .config import ROOT, load_settings
+from .config import RESOURCES, ROOT, load_settings
 from .db import DB
-from .scope import PhaseNotAllowed, load_scope
+from .scope import (
+    PhaseNotAllowed,
+    list_programs,
+    load_scope,
+    parse_pattern,
+    program_scope_path,
+    valid_program_name,
+)
 
 app = typer.Typer(add_completion=False, help="Asistente semi-automatico de bug bounty.")
 console = Console()
@@ -37,11 +48,75 @@ console = Console()
 STATUSES = ["new", "validated", "false_positive", "duplicate", "ready", "reported"]
 
 
+_STATE: dict[str, str | None] = {"program": None}
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+@app.callback()
+def main(
+    program: str = typer.Option(
+        None, "--program", "-p", envvar="BBHUNTER_PROGRAM",
+        help="Programa de programs/NOMBRE/ (por defecto, config/scope.yaml)."),
+):
+    """Asistente semi-automatico de bug bounty."""
+    if program and not valid_program_name(program):
+        console.print(f"[red]Nombre de programa no valido:[/red] {program!r} "
+                      "(minusculas, digitos, '.', '_' o '-')")
+        raise typer.Exit(code=1)
+    _STATE["program"] = program or None
+
+
+def _settings():
+    prog = _STATE["program"]
+    if prog:
+        override = program_scope_path(prog).with_name("settings.yaml")
+        if override.exists():
+            return load_settings(override)
+    return load_settings()
+
+
+def _scope():
+    try:
+        return load_scope(program=_STATE["program"])
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]Scope:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
+
 def _ctx():
-    settings = load_settings()
-    scope = load_scope()
+    settings = _settings()
+    scope = _scope()
     db = DB(settings.abs_db_path())
     return settings, scope, db
+
+
+def _scope_limits(scope) -> list[str]:
+    """Lineas que resumen limites de puerto/ruta/IP y la politica de nuclei."""
+    out = []
+    pats = [(raw, parse_pattern(raw)) for raw in scope.in_scope]
+    restricted = [raw for raw, p in pats if not p.host_wide]
+    if restricted:
+        out.append(f"Limitado por puerto/ruta: {', '.join(restricted)}")
+    nets = [raw for raw, p in pats if p.network is not None]
+    if nets:
+        out.append("IP/CIDR (solo objetivos escritos como IP; los CIDR no se expanden): "
+                   + ", ".join(nets))
+    wild = [raw for raw, p in pats if p.wildcard]
+    if wild:
+        apex = "incluyen" if scope.rules.wildcard_includes_apex else "NO incluyen"
+        out.append(f"Wildcards ({apex} el apex): {', '.join(wild)}")
+    n = scope.nuclei
+    if n.is_allowlist():
+        parts = [f"-t {', '.join(n.templates)}" if n.templates else "",
+                 f"-id {', '.join(n.template_ids)}" if n.template_ids else "",
+                 f"-tags {', '.join(n.tags)}" if n.tags else ""]
+        out.append("Nuclei allowlist: " + " | ".join(p for p in parts if p))
+    else:
+        tail = " -> se omitira: el scope limita rutas" if scope.has_path_patterns() else ""
+        out.append("Nuclei: TODAS las plantillas instaladas (sin allowlist)" + tail)
+    out.append(f"Nuclei excluye tags: {', '.join(n.exclude_tags) or '(ninguna)'} | "
+               f"interactsh: {'permitido' if n.allow_interactsh else 'desactivado'}")
+    return out
 
 
 def _authorization_gate(scope, assume_yes: bool, settings=None) -> None:
@@ -54,6 +129,8 @@ def _authorization_gate(scope, assume_yes: bool, settings=None) -> None:
     console.print(f"Programa: [cyan]{scope.program}[/cyan] | Plataforma: {scope.platform}")
     console.print(f"Politica: {scope.policy_url or '(no indicada)'}")
     console.print(f"In-scope: {', '.join(scope.in_scope) or '(vacio)'}")
+    for line in _scope_limits(scope):
+        console.print(f"  {line}")
     if scope.request_headers:
         hdrs = ", ".join(f"{k}: {v}" for k, v in scope.request_headers.items())
         console.print(f"Cabeceras en todo el trafico: [cyan]{hdrs}[/cyan]")
@@ -74,17 +151,59 @@ def _authorization_gate(scope, assume_yes: bool, settings=None) -> None:
 
 
 @app.command()
-def init():
-    """Crea config/scope.yaml y config/settings.yaml desde los ejemplos."""
-    for name in ("scope", "settings"):
-        src = ROOT / "config" / f"{name}.example.yaml"
-        dst = ROOT / "config" / f"{name}.yaml"
+def init(
+    program: str = typer.Option(None, "--program", "-p",
+                                help="Crear programs/NOMBRE/scope.yaml en vez de config/scope.yaml."),
+):
+    """Crea la configuracion local desde los ejemplos (nunca sobrescribe)."""
+    program = program or _STATE["program"]
+    examples = RESOURCES / "config"
+    targets = [("settings", ROOT / "config" / "settings.yaml")]
+    if program:
+        if not valid_program_name(program):
+            console.print(f"[red]Nombre de programa no valido:[/red] {program!r}")
+            raise typer.Exit(code=1)
+        targets.append(("scope", program_scope_path(program)))
+    else:
+        targets.append(("scope", ROOT / "config" / "scope.yaml"))
+    for name, dst in targets:
         if dst.exists():
-            console.print(f"[yellow]Ya existe {dst.name}, no lo sobrescribo.[/yellow]")
-        else:
-            shutil.copy(src, dst)
-            console.print(f"[green]Creado[/green] {dst}")
-    console.print("Edita config/scope.yaml con el scope real y config/settings.yaml con tu API key.")
+            console.print(f"[yellow]Ya existe {dst}, no lo sobrescribo.[/yellow]")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        text = (examples / f"{name}.example.yaml").read_text(encoding="utf-8")
+        if name == "scope" and program:
+            text = text.replace('program: "ejemplo-programa"', f'program: "{program}"', 1)
+        dst.write_text(text, encoding="utf-8")
+        console.print(f"[green]Creado[/green] {dst}")
+    where = f"programs/{program}/scope.yaml" if program else "config/scope.yaml"
+    console.print(f"Edita {where} con el scope REAL y config/settings.yaml con tus ajustes.")
+    if program:
+        console.print(f"Despues usa: bbhunter -p {program} <comando>")
+
+
+@app.command("programs")
+def programs_cmd():
+    """Lista los programas configurados en programs/."""
+    names = list_programs()
+    if not names:
+        console.print("[dim]No hay programas. Crea uno con: bbhunter init --program NOMBRE[/dim]")
+        return
+    settings = load_settings()
+    db = DB(settings.abs_db_path())
+    table = Table(title=f"Programas ({ROOT / 'programs'})")
+    for col in ("Programa", "Plataforma", "In-scope", "Hallazgos", "Politica"):
+        table.add_column(col, overflow="fold")
+    for name in names:
+        try:
+            sc = load_scope(program=name)
+        except Exception as exc:  # noqa: BLE001
+            table.add_row(name, "", f"[red]error: {exc}[/red]", "", "")
+            continue
+        table.add_row(name, sc.platform, str(len(sc.in_scope)),
+                      str(len(db.findings(program=sc.program))), sc.policy_url)
+    db.close()
+    console.print(table)
 
 
 @app.command("scope-check")
@@ -94,6 +213,8 @@ def scope_check(target: str):
     allowed = scope.is_allowed(target)
     color = "green" if allowed else "red"
     console.print(f"[{color}]{'EN SCOPE' if allowed else 'FUERA DE SCOPE'}[/{color}]: {scope.reason(target)}")
+    if not allowed:
+        raise typer.Exit(code=1)
 
 
 def _blocked(exc: PhaseNotAllowed) -> None:
@@ -319,8 +440,8 @@ def audit_log(
     """Registro de auditoria: que herramienta se ejecuto, contra que, cuando y con que resultado."""
     from .audit import read_entries
 
-    settings = load_settings()
-    prog = program or load_scope().program
+    settings = _settings()
+    prog = program or _scope().program
     entries = [e for e in read_entries(settings.abs_audit_path(), last=10_000, failed_only=failed)
                if e.get("program") == prog][-last:]
     table = Table(title=f"Auditoria — {prog} ({settings.abs_audit_path()})")
@@ -349,6 +470,15 @@ def dashboard(host: str = "127.0.0.1", port: int = 8000):
     """Lanza el dashboard web local para triar hallazgos."""
     import uvicorn
 
+    if host not in _LOOPBACK:
+        console.print(f"[bold red]AVISO[/bold red]: escuchar en {host} expone hallazgos y evidencias "
+                      "a la red. El panel no tiene autenticacion; usa 127.0.0.1 y un tunel SSH.")
+        if not typer.confirm("Continuar igualmente?"):
+            raise typer.Exit(code=1)
+    _scope()  # valida el programa antes de arrancar
+    os.environ["BBHUNTER_DASHBOARD_HOST"] = host
+    if _STATE["program"]:
+        os.environ["BBHUNTER_PROGRAM"] = _STATE["program"]
     console.print(f"[bold]Dashboard[/bold] en http://{host}:{port}")
     uvicorn.run("bbhunter.dashboard.app:app", host=host, port=port, reload=False)
 

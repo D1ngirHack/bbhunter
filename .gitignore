@@ -3,6 +3,8 @@ data/
 reports/
 config/settings.yaml
 config/scope.yaml
+# Scopes y ajustes reales por programa (bbhunter init --program NOMBRE)
+programs/
 *.sqlite
 *.sqlite3
 *.db
@@ -14,6 +16,9 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+build/
+dist/
 
 # Renderizados temporales de verificacion de la guia PDF
 tmp/pdfs/

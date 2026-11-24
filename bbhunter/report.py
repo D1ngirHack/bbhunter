@@ -4,14 +4,13 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup, escape
 from rich.console import Console
 
 from . import knowledge
-from .config import ROOT, Settings
+from .config import RESOURCES, Settings
 from .db import DB
 from .scope import Scope
 
@@ -31,7 +30,7 @@ def _nl2br(value: object) -> Markup:
 
 
 _env = Environment(
-    loader=FileSystemLoader(str(ROOT / "templates")),
+    loader=FileSystemLoader(str(RESOURCES / "templates")),
     autoescape=_autoescape,
     trim_blocks=False,
     lstrip_blocks=False,

@@ -9,8 +9,28 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-# Raiz del proyecto = carpeta que contiene el paquete bbhunter/
-ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+# Recursos de solo lectura que viajan dentro del paquete (wheel o editable).
+RESOURCES = PACKAGE_DIR / "resources"
+
+
+def _home() -> Path:
+    """Directorio de trabajo: config/, programs/, data/ y reports/.
+
+    1. BBHUNTER_HOME si esta definida.
+    2. La raiz del repositorio si se ejecuta desde un checkout (instalacion editable).
+    3. El directorio actual (instalacion normal con pip/pipx).
+    """
+    env = os.environ.get("BBHUNTER_HOME", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    repo = PACKAGE_DIR.parent
+    if (repo / "pyproject.toml").exists():
+        return repo
+    return Path.cwd()
+
+
+ROOT = _home()
 
 
 class ToolPaths(BaseModel):
@@ -88,7 +108,7 @@ class Settings(BaseModel):
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
 
@@ -97,7 +117,8 @@ def load_settings(path: str | Path | None = None) -> Settings:
     valores por defecto."""
     if path is not None:
         return Settings(**_load_yaml(Path(path)))
-    for candidate in (ROOT / "config" / "settings.yaml", ROOT / "config" / "settings.example.yaml"):
+    for candidate in (ROOT / "config" / "settings.yaml",
+                      RESOURCES / "config" / "settings.example.yaml"):
         if candidate.exists():
             return Settings(**_load_yaml(candidate))
     return Settings()

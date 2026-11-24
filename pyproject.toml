@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pdf = ["weasyprint>=62"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.6", "build>=1.2"]
 
 [project.scripts]
 bbhunter = "bbhunter.cli:app"
@@ -29,3 +29,20 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["bbhunter*"]
+
+# Recursos que deben viajar en el wheel (no solo en el checkout del repo).
+[tool.setuptools.package-data]
+"bbhunter.resources" = ["config/*.yaml", "knowledge/*.yaml", "templates/*.j2"]
+"bbhunter.dashboard" = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["scripts/build_guide.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008"]   # B008: Typer/FastAPI usan llamadas en los valores por defecto

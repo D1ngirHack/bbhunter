@@ -8,10 +8,10 @@ La guía incluye instalación en Kali/WSL, configuración de scope frente a URL,
 simulación, laboratorio local, enumeración, validación con Burp/curl, uso acotado
 de herramientas, informe de ejemplo y revisión de los 35 ficheros originales.
 
-**Limitaciones verificadas de esta versión:** el scope solo comprueba el host
-(no rutas ni puertos) y el wildcard incluye el dominio raíz. No uses el pipeline
-para permisos limitados a rutas o puertos. La guía explica el recorrido manual
-para esos casos.
+**Scope:** patrones por host, `*.dominio`, puerto (`app.ejemplo.com:8443`), ruta
+(`https://app.ejemplo.com/api/`) e IP/CIDR (solo objetivos escritos como IP; no se resuelve DNS).
+El wildcard **no** incluye el dominio raíz salvo `rules.wildcard_includes_apex: true`.
+`bbhunter scope-check URL` dice qué límite falla y sale con código 1 si está fuera.
 
 **Bloqueos de política:** `allow_automated_tools: false` bloquea `recon`, `scan` y
 `run`; `allow_active_scan: false` bloquea `scan`/`run` y deja `recon` en modo pasivo
@@ -23,6 +23,13 @@ para esos casos.
 - **Auditoría:** cada ejecución de herramienta queda en `data/audit.jsonl`
   (`bbhunter audit`, `bbhunter audit --failed`). Si una herramienta falla verás
   **FALLO** / **RESULTADO INCOMPLETO**, nunca un "0 hallazgos" engañoso.
+- **Plantillas de Nuclei por programa:** bloque `nuclei:` del scope (allowlist `templates`/`template_ids`/`tags`,
+  `exclude_tags`, severidades). Interactsh desactivado salvo `allow_interactsh: true`. Con un scope
+  limitado por ruta, Nuclei no se ejecuta sin allowlist.
+- **Un directorio por programa:** `bbhunter init --program acme` → `programs/acme/scope.yaml`;
+  después `bbhunter -p acme <comando>` (o `BBHUNTER_PROGRAM=acme`). `bbhunter programs` los lista.
+- **Panel protegido:** solo Host local (contra DNS rebinding), token CSRF y mismo origen en cada acción,
+  CSP y acciones limitadas al programa activo.
 - **Secretos:** la evidencia se guarda con contraseñas, claves y tokens enmascarados
   (`redact_evidence`) y a Claude solo llega enmascarada, o nada con `llm_evidence: "none"`.
 
@@ -52,11 +59,13 @@ impacto / remediación (con **Claude**) y genera **informes profesionales** list
 bash scripts/install_tools.sh      # instala subfinder, httpx, naabu, nuclei, dalfox + venv Python
 source .venv/bin/activate
 bbhunter init                      # crea config/scope.yaml y config/settings.yaml
+bbhunter init --program acme       # o un scope por programa: programs/acme/scope.yaml
 export ANTHROPIC_API_KEY=sk-ant-...   # para la redacción con Claude
 ```
 
 Edita:
-- **`config/scope.yaml`** → el scope REAL del programa (in_scope / out_of_scope / reglas).
+- **`config/scope.yaml`** (o `programs/NOMBRE/scope.yaml`) → el scope REAL del programa
+  (in_scope / out_of_scope / reglas / plantillas de nuclei).
 - **`config/settings.yaml`** → modelo de Claude, rate limits, rutas de binarios.
 
 ## Uso
@@ -139,18 +148,24 @@ docker run --rm -p 127.0.0.1:3000:3000 bkimminich/juice-shop
 
 ```bash
 pip install -e ".[dev]"
+ruff check .
 pytest -q
 ```
+
+El CI (`.github/workflows/ci.yml`) ejecuta ruff y pytest en Python 3.11–3.13 y prueba el
+wheel instalado fuera del repositorio. Los datos de trabajo (`config/`, `programs/`, `data/`,
+`reports/`) se buscan en `BBHUNTER_HOME`, en el repo si trabajas desde un checkout, o en el
+directorio actual.
 
 ## Estructura
 
 ```
-bbhunter/    paquete Python (cli, scope, recon, scan, enrich, llm, report, dashboard)
-config/      scope.yaml y settings.yaml (copias de los *.example.yaml)
-knowledge/   vrt_mapping.yaml (CVSS↔tier) y vuln_kb.yaml (clases de vuln)
-templates/   plantillas de informe (Markdown/HTML)
-scripts/     install_tools.sh, run_pipeline.sh
-tests/       tests (scope, dedup, report)
+bbhunter/            paquete Python (cli, scope, recon, scan, enrich, llm, report, dashboard)
+bbhunter/resources/  config/*.example.yaml, knowledge/ (CVSS↔tier, clases) y templates/ (informes)
+config/              scope.yaml y settings.yaml locales (gitignored)
+programs/NOMBRE/     scope.yaml (y settings.yaml opcional) por programa (gitignored)
+scripts/             install_tools.sh, run_pipeline.sh, build_guide.py
+tests/               tests (scope, gates, esenciales, importantes, dedup, report, refs)
 reports/     informes generados (gitignored)
 data/        base de datos SQLite (gitignored)
 ```

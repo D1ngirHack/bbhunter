@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Instalar
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check .
+      - name: Tests
+        run: pytest -q
+
+  package:
+    # Comprueba que el wheel funciona FUERA del repo: plantillas, base de
+    # conocimiento y ejemplos de configuracion deben venir dentro del paquete.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Construir wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+      - name: Instalar y probar en un directorio limpio
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          mkdir /tmp/work && cd /tmp/work
+          /tmp/venv/bin/bbhunter --help
+          /tmp/venv/bin/bbhunter init --program demo
+          test -f programs/demo/scope.yaml
+          test -f config/settings.yaml
+          /tmp/venv/bin/bbhunter -p demo scope-check https://api.ejemplo.com
+          /tmp/venv/bin/python -I -c "from bbhunter import knowledge, report; knowledge.vuln_kb(); report._env.get_template('report_html.j2'); print('recursos OK')"

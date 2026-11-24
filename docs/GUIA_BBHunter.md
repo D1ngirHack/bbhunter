@@ -2,7 +2,7 @@
 
 El objetivo es que puedas pasar de una instalación vacía a una investigación documentada y a un informe que el equipo del programa pueda reproducir. Cada fase explica qué introducir, qué comando ejecutar, qué resultado revisar y cuándo avanzar. La guía describe el código que existe en este repositorio, incluidas sus limitaciones.
 
-**Respuesta directa a «¿le doy un scope o una URL?»** BBHunter lee el alcance desde `config/scope.yaml`. No descarga la política ni extrae automáticamente los activos de HackerOne o Bugcrowd. `policy_url` es una referencia informativa. `bbhunter run https://...` no es una forma admitida de ejecutar el programa. Una URL se admite en `bbhunter scope-check URL`, que solo comprueba su hostname.
+**Respuesta directa a «¿le doy un scope o una URL?»** BBHunter lee el alcance desde `config/scope.yaml`. No descarga la política ni extrae automáticamente los activos de HackerOne o Bugcrowd. `policy_url` es una referencia informativa. `bbhunter run https://...` no es una forma admitida de ejecutar el programa. Una URL se admite en `bbhunter scope-check URL`, que comprueba host, puerto y ruta según los patrones del scope. Con `bbhunter -p NOMBRE ...` el alcance se lee de `programs/NOMBRE/scope.yaml`.
 
 ## Elige tu ruta
 
@@ -34,11 +34,11 @@ BBHunter 0.1.0 es un asistente de reconocimiento web, almacenamiento de candidat
 
 | Comprobación del código | Consecuencia práctica |
 |---|---|
-| El scope compara solo el hostname. | No protege rutas, esquemas, puertos, métodos, cuentas ni tipos de prueba. |
-| `*.dominio` incluye también `dominio`. | Si la política excluye el dominio raíz, añádelo explícitamente a `out_of_scope`. |
+| El scope compara host, puerto (fijado por el esquema si el patrón es una URL) y ruta. Las IP/CIDR solo casan con objetivos escritos como IP. | No resuelve DNS ni controla métodos, cuentas o tipos de prueba. Un hostname nunca queda autorizado por un rango CIDR. |
+| `*.dominio` no incluye `dominio` salvo `rules.wildcard_includes_apex: true`. | Si la política cubre el dominio raíz, añádelo a `in_scope` o activa esa regla. |
 | `allow_automated_tools: false` bloquea `recon`, `scan` y `run` (código de salida 2), también con `--yes`. | Es un bloqueo técnico de BBHunter, no de otras herramientas: no lances manualmente comandos automatizados que la política prohíba. |
 | `allow_active_scan: false` bloquea `scan` y `run` (Nuclei y Dalfox) y deja `recon` en modo pasivo: subfinder sin sondeo httpx. | Los subdominios se guardan con fuente `pasivo-sin-sondeo`: son candidatos sin verificar, no hosts vivos. |
-| Nuclei no recibe una lista de plantillas elegidas por el operador. | `scan` no permite limitar desde la CLI las rutas, los callbacks OAST o las familias de pruebas. |
+| Nuclei recibe la política del programa (bloque `nuclei:` del scope): allowlist (`templates`, `template_ids`, `tags`), `exclude_tags`, severidades e `-no-interactsh` salvo `allow_interactsh: true`. | Sin allowlist usa todas las plantillas instaladas. Si el scope limita rutas, `scan` omite Nuclei hasta que definas una allowlist, porque muchas plantillas atacan la raíz del host. |
 | No hay crawler ni importador de endpoints en la CLI. | Las rutas de la aplicación y las APIs requieren mapeo manual. Dalfox puede no tener candidatos. |
 | Sin httpx se crean URLs HTTPS supuestas. | «Host vivo» en la salida no demuestra una respuesta real. Revisa la fuente del activo. |
 | La severidad se asigna por clase con un vector predeterminado. | Recalcula según evidencia; el resultado de BBHunter no es la severidad definitiva. |
@@ -46,8 +46,9 @@ BBHunter 0.1.0 es un asistente de reconocimiento web, almacenamiento de candidat
 ## Otras diferencias con una herramienta completa
 
 - Naabu se instala y aparece en la configuración, pero el pipeline no lo ejecuta.
-- Sí hay cabeceras de identificación por programa (`request_headers` en el scope) y proxy opcional (`proxy` en settings) para httpx, Nuclei y Dalfox. No hay cookies/sesiones, rutas permitidas ni allowlist de plantillas para los escáneres del pipeline.
+- Sí hay cabeceras de identificación por programa (`request_headers` en el scope) y proxy opcional (`proxy` en settings) para httpx, Nuclei y Dalfox. No hay cookies/sesiones para los escáneres del pipeline.
 - Cada ejecución de herramienta queda en `data/audit.jsonl` (`bbhunter audit`) y los fallos se muestran como «FALLO» y «RESULTADO INCOMPLETO» en vez de pasar por cero hallazgos.
+- Cada programa puede vivir en `programs/NOMBRE/` (`bbhunter init --program NOMBRE`, después `bbhunter -p NOMBRE ...`). El panel exige Host local, token CSRF y mismo origen en sus acciones, y solo muestra hallazgos del programa activo.
 - El panel no permite editar los textos ni adjuntar capturas. Debes completar el informe en un editor y adjuntar evidencia en la plataforma.
 - `report` puede generar documentos de hallazgos `new`; exportar no equivale a validar.
 - El pipeline no descubre vulnerabilidades de autorización, autenticación o lógica de negocio de manera sistemática.
@@ -211,7 +212,18 @@ nano config/scope.yaml
 nano config/settings.yaml
 ```
 
-`init` copia los ejemplos y no sobrescribe ficheros existentes. El programa resuelve estas rutas respecto de la raíz que contiene el paquete instalado en modo editable. No hay una opción CLI general `--scope` o `--config`. Si falta la configuración local, utiliza los ejemplos; por eso debes crearla y revisarla antes de operar.
+`init` copia los ejemplos (empaquetados en `bbhunter/resources/config/`) y no sobrescribe ficheros existentes. Las rutas `config/`, `programs/`, `data/` y `reports/` se resuelven respecto de `BBHUNTER_HOME` si la defines; si no, respecto del repositorio cuando trabajas desde un checkout, y del directorio actual en una instalación normal. Si falta la configuración local se usan los ejemplos; por eso debes crearla y revisarla antes de operar.
+
+Para trabajar con varios programas sin mezclar alcances, crea uno por directorio:
+
+```bash
+bbhunter init --program acme      # crea programs/acme/scope.yaml
+nano programs/acme/scope.yaml
+bbhunter programs                 # lista programas, plataforma y hallazgos
+bbhunter -p acme scope-check https://app.example.test/
+```
+
+Con `-p acme` (o `BBHUNTER_PROGRAM=acme`) todos los comandos usan ese scope, y `programs/acme/settings.yaml` si existe. El campo `program` del YAML debe coincidir con el nombre del directorio; si no, BBHunter se niega a cargarlo para que base, informes y auditoría no se mezclen. `programs/` está ignorado por Git.
 
 ## Caso A: solo está autorizado un host completo
 
@@ -231,9 +243,9 @@ rules:
   notes: "Completar restricciones desde la politica real."
 ```
 
-No pongas `https://app.example.test/` dentro de `in_scope`: los patrones esperan hosts, no URLs. Con un host exacto no se permiten sus subdominios automáticamente.
+Un host sin esquema autoriza cualquier puerto y ruta de ese host. Si la política fija puerto o ruta, usa el caso C. Con un host exacto no se permiten sus subdominios automáticamente.
 
-## Caso B: wildcard con dominio raíz excluido
+## Caso B: wildcard y dominio raíz
 
 ```yaml
 in_scope:
@@ -244,13 +256,26 @@ out_of_scope:
   - "*.dev.example.test"
 ```
 
-En este código el wildcard incluye el apex y cualquier profundidad. `out_of_scope` prevalece. La exclusión exacta `example.test` elimina solo ese host; no elimina `app.example.test`. Si la política permite únicamente subdominios de un nivel, el wildcard de esta versión es demasiado amplio: usa hosts exactos revisados.
+El wildcard cubre cualquier profundidad de subdominios, pero **no** el apex: `example.test` queda fuera salvo que lo añadas a `in_scope` o pongas `rules.wildcard_includes_apex: true` (solo si la política lo dice). En el ejemplo, la línea `example.test` de `out_of_scope` documenta la exclusión aunque ya no sea necesaria. `out_of_scope` prevalece. Si la política permite únicamente subdominios de un nivel, el wildcard es demasiado amplio: usa hosts exactos revisados.
 
 ## Caso C: solo una URL o una ruta
 
-Si la política autoriza `https://app.example.test/portal/` y excluye otras rutas, BBHunter no puede representar ese límite. `scope-check https://app.example.test/admin` también podría mostrar «EN SCOPE» con ese host. Lo mismo ocurre con un permiso limitado a HTTPS o al puerto 8443.
+Si la política autoriza solo una ruta, un puerto o una IP, escríbelo así en el patrón:
 
-**Acción:** usa navegación y peticiones a la ruta exacta con Burp/curl; no ejecutes recon, scan o run sobre el host. Conserva el host en tu ficha como referencia, pero no interpretes el resultado de `scope-check` como autorización completa.
+```yaml
+in_scope:
+  - "https://app.example.test/portal/"   # esa ruta y lo que cuelga de ella, solo HTTPS (443)
+  - "pay.example.test:8443"              # solo ese puerto
+  - "203.0.113.0/24"                     # objetivos escritos como IP dentro del rango
+out_of_scope:
+  - "https://app.example.test/portal/admin"
+nuclei:
+  template_ids: ["PLANTILLA-REVISADA"]   # obligatorio para que scan ejecute Nuclei con rutas
+```
+
+Con ese scope, `scope-check https://app.example.test/admin` y `scope-check http://app.example.test/portal/` responden «FUERA DE SCOPE» e indican qué límite falla. Las rutas se normalizan antes de comparar (`/portal/../admin` no pasa). El recon sondea `https://app.example.test/portal/` y `pay.example.test:8443`, no la raíz ni los puertos por defecto. Los rangos CIDR no se expanden ni se comparan con hostnames.
+
+**Límite:** el filtro decide qué URLs entran y qué resultados se guardan, pero una herramienta puede seguir enlaces o redirecciones fuera de la ruta. Por eso Nuclei no se ejecuta con rutas sin allowlist. Revisa en `bbhunter audit` qué se lanzó y, si la política es muy estricta, trabaja la ruta a mano con Burp/curl.
 
 ## Comprobar y registrar decisiones
 
@@ -261,7 +286,7 @@ bbhunter scope-check https://example.test/
 bbhunter scope-check https://otro.example.invalid/
 ```
 
-Compara cada salida con tu política y no solo con el YAML. El comando imprime la decisión, pero no devuelve un código de salida específico de rechazo: no uses `scope-check ... && herramienta ...` como barrera. DNS, CNAME, enlaces y redirecciones tampoco amplían el alcance de forma automática.
+Compara cada salida con tu política y no solo con el YAML. El comando devuelve código 0 si está en scope y 1 si no. Aun así, no lo uses como única barrera de otras herramientas: el código de salida no sustituye tu lectura de la política. DNS, CNAME, enlaces y redirecciones tampoco amplían el alcance de forma automática.
 
 # 07. Primera ejecución: simulación aislada
 
@@ -325,7 +350,7 @@ El ID 1 es ilustrativo. Las salidas se guardan bajo `reports/demo/bbhunter-demo/
 
 ## Ajustes mínimos y separación por programa
 
-Primero termina y guarda la práctica. Después cambia el scope al programa real y utiliza una base nueva. No borres la base anterior para limpiar: cambia la ruta y conserva lo que necesitas.
+Primero termina y guarda la práctica. Después crea el programa real con `bbhunter init --program NOMBRE` (capítulo 06) y utiliza una base nueva. Los ajustes siguientes pueden ir en `programs/NOMBRE/settings.yaml`, que sustituye a `config/settings.yaml` cuando ejecutas `bbhunter -p NOMBRE ...`. No borres la base anterior para limpiar: cambia la ruta y conserva lo que necesitas.
 
 ```yaml
 llm_enabled: false
@@ -473,7 +498,7 @@ El resultado es un fichero de nombres, uno por línea. Puede estar vacío por au
 
 ## Filtrar sin contactar con los candidatos
 
-El siguiente bloque usa el matcher real de BBHunter y escribe separados los permitidos y rechazados. No resuelve DNS ni hace HTTP. Es adecuado para límites de hostname; sigue siendo necesario revisar a mano puertos, rutas, propietarios y excepciones de la política.
+El siguiente bloque usa el matcher real de BBHunter y escribe separados los permitidos y rechazados. No resuelve DNS ni hace HTTP. Aplica los mismos límites de host, puerto y ruta que el pipeline; sigue siendo necesario revisar a mano propietarios y excepciones de la política.
 
 ```bash
 python - <<'PY'
@@ -711,9 +736,9 @@ La salida directa de este comando no se importa automáticamente en BBHunter. Ma
 
 ## Qué cambia si usas bbhunter scan
 
-`bbhunter scan` toma las URLs de SQLite y llama Nuclei con las severidades low, medium, high y critical, una tasa y concurrencia. No añade las opciones de selección, bloqueo OAST, redirecciones y cabeceras del ejemplo anterior. Después puede ejecutar Dalfox sobre URLs con `?`.
+`bbhunter scan` toma las URLs de SQLite y llama Nuclei con la política del bloque `nuclei:` del scope: plantillas (`-t`), IDs (`-id`), tags (`-tags`), tags excluidas (`-etags`), severidades y `-no-interactsh` salvo que lo permitas. Añade tasa, concurrencia, cabeceras del programa y proxy. Después puede ejecutar Dalfox sobre URLs con `?`.
 
-Úsalo solo cuando la política permita lo que realmente ejecutan esas herramientas y hayas revisado su configuración y plantillas instaladas. Si necesitas una allowlist estricta de plantillas o paths, usa la ejecución manual. No hay una opción `bbhunter scan --templates ...` implementada.
+Úsalo solo cuando la política permita lo que realmente ejecutan esas herramientas y hayas revisado su configuración y plantillas instaladas. La allowlist se define por programa en el scope, no con una opción de la CLI, para que quede registrada junto a su alcance. La confirmación previa al escaneo muestra la política aplicada.
 
 # 17. XSS: de una reflexión a una prueba válida
 
@@ -1084,7 +1109,9 @@ Haz retest cuando el programa lo solicite o su política lo contemple: repite la
 | Error de compilación de Naabu por pcap | Instala `libpcap-dev` y herramientas de compilación; vuelve a instalar solo el binario fallido. |
 | `httpx` tiene otras opciones | `type -a httpx` identifica el conflicto. Fija la ruta al binario de ProjectDiscovery en settings. |
 | Dalfox no reconoce `url` | Probablemente hay una interfaz distinta. Usa una versión v2 revisada para esta integración o trabaja manualmente con la documentación de tu versión. |
-| Cambios YAML no se aplican | Revisa el proyecto al que apunta la instalación editable y que editas los ficheros de su `config/`. No existe `--config` global en la CLI. |
+| Cambios YAML no se aplican | Comprueba la raíz con el bloque siguiente (`BBHUNTER_HOME`, checkout o directorio actual) y si usas `-p NOMBRE`, que edita `programs/NOMBRE/scope.yaml`. |
+| «program=... no coincide con el directorio» | El campo `program` de `programs/NOMBRE/scope.yaml` debe ser `NOMBRE`. |
+| El panel responde «Host no permitido» u «Origen no permitido» | Ábrelo como `http://127.0.0.1:8000`. Otros nombres de host se rechazan para evitar DNS rebinding. |
 | Error de sintaxis YAML | Usa espacios en vez de tabulaciones, conserva indentación y pon URLs/strings entre comillas. No dupliques claves. |
 
 Puedes inspeccionar ajustes no sensibles sin mostrar claves:
@@ -1162,7 +1189,10 @@ Al terminar, detén panel, proxy o laboratorio que ya no necesites, guarda las e
 
 ```bash
 bbhunter init                     # crear configuracion local
-bbhunter scope-check URL          # solo compara el hostname
+bbhunter init --program acme      # o un scope por programa en programs/acme/
+bbhunter programs                 # programas configurados
+bbhunter -p acme <comando>        # cualquier comando sobre ese programa
+bbhunter scope-check URL          # host, puerto y ruta; codigo 1 si esta fuera
 bbhunter recon                    # pasivo + sondeo HTTP (solo pasivo si allow_active_scan: false)
 bbhunter scan                     # candidatos desde SQLite
 bbhunter audit --failed           # fallos u omisiones: resultado incompleto
@@ -1231,12 +1261,12 @@ Se revisaron los **35 ficheros versionados originales**, además de la estructur
 | Fichero | Función y conclusión de revisión |
 |---|---|
 | `bbhunter/__init__.py` | Declara versión 0.1.0 y propósito. Sus afirmaciones generales sobre plataformas no sustituyen la política concreta. |
-| `bbhunter/cli.py` | Define los comandos documentados. No acepta URL en run ni opciones globales de scope/config. Comprueba las reglas `allow_*` antes de la confirmación y bloquea las fases prohibidas (salida 2). Las operaciones por ID no verifican siempre pertenencia al programa activo. |
-| `bbhunter/config.py` | Carga settings y rutas desde ROOT, prioriza variable de API. Usa ejemplos como fallback. No valida límites positivos ni expande variables en los paths de herramientas. |
-| `bbhunter/scope.py` | Filtra host con exclusiones prioritarias. Wildcard incluye apex; no controla ruta, puerto o esquema. El mínimo de tasa es 1. |
+| `bbhunter/cli.py` | Define los comandos documentados y la opción global `--program/-p`. No acepta URL en run. Comprueba las reglas `allow_*` antes de la confirmación y bloquea las fases prohibidas (salida 2); la confirmación muestra límites de puerto/ruta/IP y la política de Nuclei. `scope-check` sale con 1 si el objetivo está fuera. Las operaciones por ID de la CLI no verifican siempre pertenencia al programa activo. |
+| `bbhunter/config.py` | Carga settings; separa `RESOURCES` (dentro del paquete) de `ROOT` (`BBHUNTER_HOME`, checkout o directorio actual). Prioriza la variable de API. Usa ejemplos empaquetados como fallback. No valida límites positivos ni expande variables en los paths de herramientas. |
+| `bbhunter/scope.py` | Patrones por host, wildcard, puerto, ruta (normalizada) e IP/CIDR, con exclusiones prioritarias; valida cada patrón al cargar. El wildcard no incluye el apex salvo regla explícita. No resuelve DNS. Incluye la política de Nuclei (`NucleiPolicy`, con validación contra inyección de argumentos) y la carga de `programs/NOMBRE/`. El mínimo de tasa es 1. |
 | `bbhunter/tools.py` | Ejecuta binarios sin shell y con timeout. Procesa JSONL y omite líneas no válidas. `traffic_args()` añade cabeceras del programa y proxy a httpx, Nuclei y Dalfox (no a subfinder, que no contacta con el objetivo). |
-| `bbhunter/recon.py` | Deriva semillas, enumera y hace HTTP. Filtra host, pero no aplica prohibición de automatización/sondeo. Sin httpx supone HTTPS; no recoge sistemáticamente endpoints con parámetros. |
-| `bbhunter/scan.py` | Ejecuta Nuclei y Dalfox, clasifica y guarda candidatos. Respeta `allow_*`, registra cada ejecución y avisa si una herramienta falla; enmascara secretos en la evidencia antes de guardarla. No hay allowlist de plantillas ni control central de callbacks. Dalfox solicita JSON y usa parser JSONL. |
+| `bbhunter/recon.py` | Deriva semillas (dominios e IPs sueltas), enumera y sondea solo `host`, `host:puerto` o la URL de la ruta autorizada. Aplica los bloqueos `allow_*`. Sin httpx supone HTTPS; no recoge sistemáticamente endpoints con parámetros. |
+| `bbhunter/scan.py` | Ejecuta Nuclei y Dalfox, clasifica y guarda candidatos. Respeta `allow_*`, registra cada ejecución y avisa si una herramienta falla; enmascara secretos en la evidencia antes de guardarla. Pasa a Nuclei la política del programa (allowlist, exclusiones, severidad, `-no-interactsh`) y lo omite con rutas sin allowlist. Dalfox solicita JSON y usa parser JSONL. |
 | `bbhunter/db.py` | Persiste assets/findings y carga esquema refs en SQLite. Conserva datos entre sesiones; no cifra evidencia ni separa automáticamente demo de real. Consultas por ID no aplican filtro de programa. |
 | `bbhunter/findings.py` | Deduplica con una clave corta de programa, clase, plantilla, host/path y parámetro. Omite esquema, puerto y query; convierte también path y parámetro a minúsculas. Puede unir casos distintos o separar una misma causa por plantilla. |
 | `bbhunter/knowledge.py` | Clasifica etiquetas y calcula CVSS v3.1 desde vectores de la KB. La clase se asigna por heurística; fallo de cálculo devuelve 0.0. No confirma impacto real. |
@@ -1250,33 +1280,35 @@ Se revisaron los **35 ficheros versionados originales**, además de la estructur
 | Fichero | Función y conclusión de revisión |
 |---|---|
 | `bbhunter/dashboard/__init__.py` | Inicializador vacío del paquete del panel; no añade controles. |
-| `bbhunter/dashboard/app.py` | Rutas FastAPI de listado, detalle, estado e informe. Loopback por defecto, sin autenticación; no exponer a red. No hay editor ni adjuntos. Acciones por ID no verifican el programa activo. |
+| `bbhunter/dashboard/app.py` | Rutas FastAPI de listado, detalle, estado e informe. Loopback por defecto, sin usuarios. Rechaza Host no local (DNS rebinding), exige token CSRF y Origin del mismo origen en los POST, envía CSP/`X-Frame-Options` y solo opera sobre hallazgos del programa activo. No hay editor ni adjuntos. |
 | `bbhunter/dashboard/templates/base.html` | Diseño y navegación del panel. El aviso visual recuerda el triaje manual, pero no implementa controles de estado. |
 | `bbhunter/dashboard/templates/index.html` | Filtros, contadores y tabla. «Ejecuta run» es una sugerencia del UI; no debe reemplazar la evaluación previa del alcance. |
-| `bbhunter/dashboard/templates/finding.html` | Muestra evidencia, referencias y Markdown. Cambia estado y exporta MD/HTML; no redacta ni envía desde ese botón. |
-| `templates/report.md.j2` | Borrador con resumen, reproducción, evidencia e impacto. Incluye hueco para capturas y rangos orientativos de bounty que deben retirarse del envío. |
-| `templates/report_html.j2` | Presentación HTML/PDF del mismo contenido. Se renderiza con autoescape; los textos multilínea usan el filtro `nl2br`, que escapa antes de insertar `<br>`. |
+| `bbhunter/dashboard/templates/finding.html` | Muestra evidencia, referencias y Markdown. Cambia estado y exporta MD/HTML con token CSRF; no redacta ni envía desde ese botón. |
+| `bbhunter/resources/templates/report.md.j2` | Borrador con resumen, reproducción, evidencia e impacto. Incluye hueco para capturas y rangos orientativos de bounty que deben retirarse del envío. |
+| `bbhunter/resources/templates/report_html.j2` | Presentación HTML/PDF del mismo contenido. Se renderiza con autoescape; los textos multilínea usan el filtro `nl2br`, que escapa antes de insertar `<br>`. |
 
 ## Configuración, conocimiento y scripts
 
 | Fichero | Función y conclusión de revisión |
 |---|---|
-| `config/scope.example.yaml` | Ejemplo, no permiso real. Sus booleanos iniciales true requieren revisión; las notas de política no se ejecutan. |
-| `config/settings.example.yaml` | Modelos, herramientas, límites, referencias y rutas. Incluye `audit_log`, `proxy`, `redact_evidence` y `llm_evidence`. No hay cookies de sesión para escáneres. La IA es opcional. |
-| `knowledge/vuln_kb.yaml` | Dos clases curadas y fallback. Los impactos son textos genéricos que deben ajustarse a la evidencia; no probar ni prometer robo de cookies/toma de cuenta por defecto. |
-| `knowledge/vrt_mapping.yaml` | Bandas CVSS, aproximación P1-P5 y pagos ilustrativos. No representa por completo VRT ni tablas de programas. |
+| `bbhunter/resources/config/scope.example.yaml` | Ejemplo, no permiso real. Documenta los formatos de patrón, `wildcard_includes_apex` y el bloque `nuclei:`. Sus booleanos iniciales true requieren revisión; las notas de política no se ejecutan. |
+| `bbhunter/resources/config/settings.example.yaml` | Modelos, herramientas, límites, referencias y rutas. Incluye `audit_log`, `proxy`, `redact_evidence` y `llm_evidence`. No hay cookies de sesión para escáneres. La IA es opcional. |
+| `bbhunter/resources/knowledge/vuln_kb.yaml` | Dos clases curadas y fallback. Los impactos son textos genéricos que deben ajustarse a la evidencia; no probar ni prometer robo de cookies/toma de cuenta por defecto. |
+| `bbhunter/resources/knowledge/vrt_mapping.yaml` | Bandas CVSS, aproximación P1-P5 y pagos ilustrativos. No representa por completo VRT ni tablas de programas. |
 | `scripts/install_tools.sh` | Instala Go tools con latest, actualiza plantillas y crea venv con extra pdf. PATH no persiste fuera del script; falta preparar libpcap-dev en algunos entornos. |
 | `scripts/run_pipeline.sh` | Activa una venv Linux si existe y reenvía argumentos a run. No añade controles de alcance ni acepta un target adicional. |
-| `pyproject.toml` | Declara Python >=3.11, dependencias, extras y entry point. No fija versiones; recursos de templates/config/knowledge están fuera del paquete. Se recomienda instalación editable desde repo para esta versión. |
+| `pyproject.toml` | Declara Python >=3.11, dependencias, extras, entry point, `package-data` (plantillas, base de conocimiento y ejemplos viajan en el wheel) y configuración de ruff y pytest. No fija versiones de dependencias. |
+| `.github/workflows/ci.yml` | En cada push y PR: ruff y pytest en Python 3.11–3.13, y un wheel instalado fuera del repo que ejecuta `init`, `programs`, `scope-check` y carga los recursos. |
 | `.gitignore` | Excluye configuraciones, datos, informes, credenciales y cachés. No cifra ficheros ni evita compartirlos por otros medios. |
 
 ## Pruebas y documentación originales
 
 | Fichero | Función y conclusión de revisión |
 |---|---|
-| `tests/test_scope.py` | Ocho pruebas de hosts, wildcard, exclusiones y tasa. No comprueban ruta/puerto ni que cada fase obedezca los booleanos. |
+| `tests/test_scope.py` | Ocho pruebas de hosts, wildcard, exclusiones y tasa. Puerto, ruta, IP/CIDR y apex los cubre `tests/test_important.py`. |
 | `tests/test_dedup.py` | Cinco pruebas de estabilidad, query, barras y parámetros. No evalúan colisiones semánticas por puerto/path sensible a mayúsculas. |
 | `tests/test_report.py` | Cinco pruebas de clasificación, CVSS y presencia de secciones. No verifican PDF visual ni exactitud del impacto (el escape HTML lo cubre `test_gates.py`). |
+| `tests/test_important.py` | 35 pruebas: patrones de puerto/ruta/IP y normalización, sondeo por patrón, política de Nuclei y su validación, protecciones del panel (Host, CSRF, Origin, programa), directorio por programa y recursos empaquetados. |
 | `tests/test_references.py` | Siete pruebas offline de parseo, filtro, búsqueda y estadísticas. Incluye la mediana con un número par de recompensas. |
 | `README.md` | Resumen operativo. Se enlaza esta guía y se aclaran alcance, simulación, validación y límites de la automatización. |
 | `GUIA_BBHunter.pdf` | El original tenía siete páginas con instalación y flujo breve. Esta edición incorpora metodología, casos de scope, controles, informe, fuentes y revisión técnica. |
@@ -1298,8 +1330,8 @@ Coinciden con los ejemplos definidos por el código y carecen de validación rea
 ## Qué se comprobó en esta revisión
 
 1. Lectura del código propio, tests, YAML, scripts, plantillas y documentación versionada; lectura de salidas de ejemplo y metadatos locales.
-2. Ejecución de `python -m pytest -q` en la venv Windows existente: **49 pruebas superadas**, incluidas las de `tests/test_gates.py` y `tests/test_essentials.py`. No requieren escanear objetivos.
-3. Comprobaciones adicionales en memoria: wildcard incluye apex, y una URL con otro path o puerto sigue siendo aceptada por el matcher del host.
+2. Ejecución de `python -m pytest -q` en la venv Windows existente: **84 pruebas superadas**, incluidas las de `tests/test_gates.py`, `tests/test_essentials.py` y `tests/test_important.py`. `ruff check .` sin avisos. No requieren escanear objetivos.
+3. Comprobaciones adicionales en memoria: en la revisión inicial el wildcard incluía el apex y una URL con otro path o puerto se aceptaba. Tras la corrección se rechazan, y además se construyó el wheel y se ejecutó desde un directorio fuera del repositorio.
 4. Simulación con mocks de herramientas: en la revisión inicial httpx y Dalfox se llamaban aunque ambos permisos estuvieran en false. Tras la corrección no se llama a ninguna herramienta con `allow_automated_tools: false`, y con `allow_active_scan: false` solo se llama a subfinder (`test_gates.py`). No se ejecutaron binarios reales ni se contactó con objetivos.
 5. Renderizado HTML en memoria con un marcador `<script>`: en la revisión inicial la cadena quedaba sin escapar. Tras la corrección se escapa, y `test_gates.py` lo comprueba.
 6. Consulta de documentación oficial para opciones de herramientas, taxonomías y formularios. Los comandos de investigación se han redactado a partir de esas interfaces y del código, sin probarlos contra programas reales.
@@ -1312,12 +1344,12 @@ La instalación completa en Kali, el comportamiento de versiones futuras de esc�
 
 | Prioridad | Cambio que haría falta implementar y probar |
 |---|---|
-| Antes de probar scope por URL | Modelar y exigir esquema, host, puerto, path, exclusiones y política de redirecciones en cada herramienta. |
-| Antes de escaneo restringido por programa | Allowlist de plantillas, control de OAST, sesiones por objetivo y limitador de tráfico compartido. |
+| Antes de scope por URL muy estricto | Política de redirecciones en cada herramienta (hoy se filtran URLs y resultados, no cada petición). |
+| Antes de escaneo restringido por programa | Sesiones por objetivo y limitador de tráfico compartido entre herramientas. |
 | Antes de depender de Dalfox integrado | Alinear versión/comando y JSONL, comprobar esquema de salida, exigir control de permisos y concurrencia. |
-| Para triaje fiable entre programas | Aislar toda operación por ID al programa activo y distinguir con claridad datos de demo, candidatos y validados. |
+| Para triaje fiable entre programas | Aislar también en la CLI las operaciones por ID al programa activo (el panel ya lo hace). |
 | Para exportación y evidencias completas | Permitir edición y adjuntos, revisar puntuación específica y deduplicación. |
-| Para distribución reproducible | Fijar y probar versiones, incluir recursos al empaquetar y verificar instalación limpia en Kali. |
+| Para distribución reproducible | Fijar versiones de dependencias y verificar instalación limpia en Kali (el wheel ya incluye los recursos y lo prueba el CI). |
 
 Estas son conclusiones de análisis y trabajo futuro.
 
@@ -1332,8 +1364,13 @@ Estas son conclusiones de análisis y trabajo futuro.
 | No había registro de actividad. | `data/audit.jsonl`: fecha, fase, herramienta, comando (enmascarado), objetivos, límite de peticiones, código, duración y final del error. |
 | Secretos del objetivo en claro en BD, informes y API. | `redact.py`: se enmascaran al guardar (`redact_evidence`) y otra vez antes de enviar a Claude; `llm_evidence: none` no envía evidencia. |
 | Sin cabeceras de identificación ni proxy. | `request_headers` en el scope y `proxy` en settings, validados contra saltos de línea, para httpx, Nuclei y Dalfox. |
+| El scope solo comparaba el hostname y el wildcard incluía el apex. | Patrones con puerto, ruta e IP/CIDR; `wildcard_includes_apex` (por defecto false); recon que sondea solo lo autorizado. |
+| Nuclei usaba todas las plantillas y callbacks OAST. | Bloque `nuclei:` por programa: allowlist, `exclude_tags` (dos, fuzz, intrusive, bruteforce por defecto), severidades y `-no-interactsh`. Con rutas, Nuclei exige allowlist. |
+| El panel aceptaba POST de cualquier web y cualquier Host. | Host local obligatorio, token CSRF, mismo origen, CSP y acciones limitadas al programa activo. |
+| Un solo scope global. | `programs/NOMBRE/`, `bbhunter init --program`, `bbhunter programs` y `-p NOMBRE`. |
+| Recursos fuera del paquete; sin CI. | Plantillas, base de conocimiento y ejemplos en `bbhunter/resources/`; CI con ruff, pytest y prueba del wheel. |
 
-Estos cambios los cubren `tests/test_gates.py` y `tests/test_essentials.py` (herramientas simuladas, sin red ni binarios).
+Estos cambios los cubren `tests/test_gates.py`, `tests/test_essentials.py` y `tests/test_important.py` (herramientas simuladas, sin red ni binarios).
 
 ## Regenerar esta guía
 

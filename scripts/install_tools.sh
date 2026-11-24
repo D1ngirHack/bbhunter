@@ -46,5 +46,5 @@ pip install -e ".[pdf]"
 
 echo "[*] Listo. Recuerda:"
 echo "    1) source .venv/bin/activate"
-echo "    2) bbhunter init   (y edita config/scope.yaml y config/settings.yaml)"
+echo "    2) bbhunter init --program NOMBRE   (edita programs/NOMBRE/scope.yaml y config/settings.yaml)"
 echo "    3) export ANTHROPIC_API_KEY=sk-ant-..."

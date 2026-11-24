@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def tool_available(binary: str) -> bool:

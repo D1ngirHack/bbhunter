@@ -17,6 +17,7 @@
 
 <div class="card">
   <form method="post" action="/finding/{{ f.id }}/status" style="display:inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="mut">Cambiar estado:</label>
     <select name="status">
       {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if s==f.status else '' }}>{{ s }}</option>{% endfor %}
@@ -24,6 +25,7 @@
     <button type="submit">Guardar</button>
   </form>
   <form method="post" action="/finding/{{ f.id }}/report" style="display:inline; margin-left:1rem">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
     <button type="submit">Generar informe (MD/HTML)</button>
   </form>
 </div>
