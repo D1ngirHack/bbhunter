@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config import ROOT, load_settings
+from .. import references
 from ..db import DB
 from ..report import render_markdown, write_report
 from ..scope import load_scope
@@ -46,9 +47,11 @@ def index(request: Request, status: str | None = None):
 def finding_detail(request: Request, fid: int):
     settings, scope, db = _ctx()
     f = db.finding(fid)
+    related = references.for_finding(db.conn, f, limit=6) if f else {}
     db.close()
     if not f:
         return HTMLResponse("Hallazgo no encontrado", status_code=404)
+    bounty = references.bounty_summary(related.get("hackerone", []))
     evidence = f.get("evidence") or "{}"
     try:
         evidence = json.dumps(json.loads(evidence), indent=2, ensure_ascii=False)
@@ -58,6 +61,7 @@ def finding_detail(request: Request, fid: int):
     return templates.TemplateResponse(request, "finding.html", {
         "f": f, "scope": scope, "statuses": STATUSES,
         "evidence": evidence, "markdown": markdown,
+        "related": related, "bounty": bounty,
     })
 
 

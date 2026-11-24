@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .references import SCHEMA as REFS_SCHEMA
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS assets (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +55,7 @@ class DB:
         self.conn = sqlite3.connect(str(self.path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self.conn.executescript(REFS_SCHEMA)
         self.conn.commit()
 
     # ---- assets ----

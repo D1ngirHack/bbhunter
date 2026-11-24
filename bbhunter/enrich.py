@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from . import llm
+from . import llm, references
 from .config import Settings
 from .db import DB
 
@@ -25,7 +25,10 @@ def enrich_findings(program: str, settings: Settings, db: DB, finding_id: int | 
         if not force and row.get("explanation"):
             continue
         console.print(f"  Enriqueciendo #{row['id']} [cyan]{row.get('name','')}[/cyan] ...")
-        data = llm.enrich_with_llm(row, settings, final=final)
+        similar = None
+        if settings.references.in_llm_prompt:
+            similar = references.for_finding(db.conn, row, limit=5)["hackerone"]
+        data = llm.enrich_with_llm(row, settings, final=final, similar=similar)
         db.update_finding(
             row["id"],
             explanation=data.get("explanation", ""),

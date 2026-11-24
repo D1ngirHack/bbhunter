@@ -11,6 +11,8 @@ Comandos principales:
   bbhunter list                 Lista hallazgos.
   bbhunter set-status ID EST    Cambia el estado de un hallazgo.
   bbhunter dashboard            Lanza el panel web local.
+  bbhunter refs sync|search|finding|stats
+                                Informes divulgados (HackerOne) y writeups (Medium).
 """
 from __future__ import annotations
 
@@ -169,6 +171,100 @@ def set_status(id: int, status: str):
     _, _, db = _ctx()
     db.set_status(id, status)
     console.print(f"[green]Hallazgo #{id} -> {status}[/green]")
+    db.close()
+
+
+# ----------------------------------------------------------------- referencias
+refs_app = typer.Typer(help="Informes divulgados (HackerOne) y writeups (Medium) de referencia.")
+app.add_typer(refs_app, name="refs")
+
+
+def _print_refs(rows: list[dict], title: str) -> None:
+    table = Table(title=title, show_lines=False)
+    for col in ("Fuente", "Sev", "Bounty", "Tipo / Etiquetas", "Titulo", "URL"):
+        table.add_column(col, overflow="fold")
+    for r in rows:
+        extra = r.get("vuln_type") or r.get("tags") or ""
+        bounty = f"{r['bounty']:.0f}" if r.get("bounty") else ""
+        table.add_row(r["source"], r.get("severity") or "", bounty, extra[:40],
+                      (r.get("title") or "")[:70], r["url"])
+    console.print(table)
+    if not rows:
+        console.print("[yellow]Sin resultados.[/yellow] ¿Has ejecutado 'bbhunter refs sync'?")
+
+
+@refs_app.command("sync")
+def refs_sync(
+    source: str = typer.Option("all", help="hackerone | medium | all"),
+):
+    """Descarga/actualiza las referencias (no contacta con ningun objetivo)."""
+    from . import references as refs_mod
+
+    settings, _, db = _ctx()
+    cfg = settings.references
+    if source in ("all", "hackerone"):
+        console.print("[bold]HackerOne[/bold]: descargando dataset de informes divulgados ...")
+        try:
+            n = refs_mod.sync_hackerone(db.conn, cfg.hackerone_url, timeout=cfg.timeout_s)
+            console.print(f"  [green]{n}[/green] informes guardados/actualizados")
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"  [red]Error:[/red] {type(exc).__name__}: {exc}")
+    if source in ("all", "medium"):
+        console.print(f"[bold]Medium[/bold]: feeds de {', '.join(cfg.medium_tags)} ...")
+        n, errors = refs_mod.sync_medium(db.conn, cfg.medium_tags, timeout=cfg.timeout_s)
+        console.print(f"  [green]{n}[/green] writeups guardados/actualizados")
+        for e in errors:
+            console.print(f"  [yellow]{e}[/yellow]")
+    db.close()
+
+
+@refs_app.command("search")
+def refs_search(
+    query: str,
+    source: str = typer.Option(None, help="hackerone | medium (por defecto ambas)"),
+    limit: int = typer.Option(15, help="Numero maximo de resultados."),
+):
+    """Busca referencias por texto (p.ej. 'ssrf', 'subdomain takeover', 'idor')."""
+    from . import references as refs_mod
+
+    _, _, db = _ctx()
+    rows = refs_mod.search(db.conn, query, source=source, limit=limit)
+    _print_refs(rows, f"Referencias: '{query}'")
+    db.close()
+
+
+@refs_app.command("finding")
+def refs_finding(id: int, limit: int = typer.Option(8, help="Resultados por fuente.")):
+    """Informes y writeups relacionados con un hallazgo concreto."""
+    from . import references as refs_mod
+
+    _, _, db = _ctx()
+    f = db.finding(id)
+    if not f:
+        console.print(f"[red]No existe el hallazgo #{id}[/red]")
+        db.close()
+        raise typer.Exit(code=1)
+    related = refs_mod.for_finding(db.conn, f, limit=limit)
+    _print_refs(related["hackerone"], f"HackerOne — similares a #{id} {f.get('name','')}")
+    s = refs_mod.bounty_summary(related["hackerone"])
+    if s.get("paid"):
+        console.print(f"  Bounties pagados en estos {s['n']}: {s['paid']} | min {s['min']:.0f} "
+                      f"| mediana {s['median']:.0f} | max {s['max']:.0f} USD")
+    _print_refs(related["medium"], "Medium — writeups relacionados")
+    db.close()
+
+
+@refs_app.command("stats")
+def refs_stats():
+    """Cuantas referencias hay guardadas y cuando se sincronizaron."""
+    from . import references as refs_mod
+
+    _, _, db = _ctx()
+    st = refs_mod.stats(db.conn)
+    if not st:
+        console.print("[yellow]No hay referencias. Ejecuta 'bbhunter refs sync'.[/yellow]")
+    for src, info in st.items():
+        console.print(f"{src}: [green]{info['count']}[/green] (ultima sync: {info['last_sync']})")
     db.close()
 
 

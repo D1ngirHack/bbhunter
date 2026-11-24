@@ -26,6 +26,20 @@ class Limits(BaseModel):
     http_timeout_s: int = 10
 
 
+class References(BaseModel):
+    """Fuentes de referencia (solo consulta, nunca tocan objetivos)."""
+    hackerone_url: str = (
+        "https://raw.githubusercontent.com/codebygk/hackerone-bug-bounty-reports/"
+        "master/data/reports.json"
+    )
+    medium_tags: list[str] = Field(default_factory=lambda: [
+        "bug-bounty", "bugbounty-writeup", "xss", "ssrf", "idor",
+        "information-disclosure", "subdomain-takeover",
+    ])
+    timeout_s: int = 60
+    in_llm_prompt: bool = True   # pasar informes similares a Claude para calibrar
+
+
 class Settings(BaseModel):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
@@ -33,6 +47,7 @@ class Settings(BaseModel):
     llm_enabled: bool = True
     tools: ToolPaths = Field(default_factory=ToolPaths)
     limits: Limits = Field(default_factory=Limits)
+    references: References = Field(default_factory=References)
     dry_run: bool = False
     db_path: str = "data/bbhunter.sqlite"
     reports_dir: str = "reports"

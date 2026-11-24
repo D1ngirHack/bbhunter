@@ -30,6 +30,16 @@ limits:
 # probar el pipeline/informes sin tocar ningún objetivo. Ponlo a false para real.
 dry_run: false
 
+# --- Referencias (solo consulta; NO tocan ningún objetivo) ---
+# `bbhunter refs sync` descarga informes divulgados de HackerOne (dataset de
+# github.com/codebygk/hackerone-bug-bounty-reports) y writeups recientes de Medium
+# (RSS por etiqueta) a la base de datos local.
+references:
+  hackerone_url: "https://raw.githubusercontent.com/codebygk/hackerone-bug-bounty-reports/master/data/reports.json"
+  medium_tags: ["bug-bounty", "bugbounty-writeup", "xss", "ssrf", "idor", "information-disclosure", "subdomain-takeover"]
+  timeout_s: 60
+  in_llm_prompt: true   # pasa a Claude títulos/bounties de informes similares para calibrar
+
 # --- Base de datos y salidas ---
 db_path: "data/bbhunter.sqlite"
 reports_dir: "reports"

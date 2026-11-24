@@ -45,6 +45,43 @@
 </div>
 
 <div class="card">
+  <h2>Informes similares divulgados (HackerOne)</h2>
+  {% if related.hackerone %}
+    {% if bounty.paid %}
+    <p class="mut">De estos {{ bounty.n }}, {{ bounty.paid }} pagaron bounty:
+      mín {{ "%.0f"|format(bounty.min) }} · mediana {{ "%.0f"|format(bounty.median) }} ·
+      máx {{ "%.0f"|format(bounty.max) }} USD. Úsalo para calibrar severidad, no como promesa de pago.</p>
+    {% endif %}
+    <table>
+      <tr><th>Sev</th><th>Bounty</th><th>Tipo</th><th>Programa</th><th>Título</th></tr>
+      {% for r in related.hackerone %}
+      <tr>
+        <td>{{ r.severity }}</td>
+        <td>{{ "%.0f"|format(r.bounty) if r.bounty else "" }}</td>
+        <td>{{ r.vuln_type }}</td>
+        <td>{{ r.program }}</td>
+        <td><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="mut">Sin referencias. Ejecuta <code>bbhunter refs sync</code>.</p>
+  {% endif %}
+
+  <h2>Writeups relacionados (Medium)</h2>
+  {% if related.medium %}
+    <ul>
+      {% for r in related.medium %}
+      <li><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+        <span class="mut">— {{ r.author }} · {{ (r.published or "")[:10] }}</span></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="mut">Sin writeups relacionados todavía (los feeds de Medium solo traen lo más reciente; sincroniza a menudo).</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Vista previa del informe (Markdown)</h2>
   <pre>{{ markdown }}</pre>
 </div>

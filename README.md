@@ -53,6 +53,28 @@ El panel web (solo localhost) permite revisar cada hallazgo, marcar su estado
 (`new → validated / false_positive / duplicate → ready → reported`) y generar el informe.
 **El envío a la plataforma lo haces tú manualmente.**
 
+### Referencias: informes divulgados (HackerOne) y writeups (Medium)
+Material de **consulta**: estos comandos solo leen fuentes públicas y nunca tocan ningún objetivo.
+
+```bash
+bbhunter refs sync                    # descarga/actualiza ambas fuentes (--source hackerone|medium)
+bbhunter refs stats                   # cuántas hay y cuándo se sincronizó
+bbhunter refs search "ssrf"           # búsqueda libre (--source, --limit)
+bbhunter refs finding 3               # informes/writeups parecidos al hallazgo #3 + rango de bounties
+```
+
+- **HackerOne:** dataset de ~10.000 informes divulgados de
+  [codebygk/hackerone-bug-bounty-reports](https://github.com/codebygk/hackerone-bug-bounty-reports).
+  Solo incluye metadatos (título, programa, tipo, severidad, bounty, enlace); el texto completo
+  se lee en hackerone.com. El repo no declara licencia y no se actualiza desde 10/2024, así que
+  BBHunter **no lo incluye**: lo descarga a `data/` (ignorado por git).
+- **Medium:** feeds RSS por etiqueta (`references.medium_tags` en `settings.yaml`). El RSS solo
+  trae las ~10 publicaciones más recientes de cada etiqueta, así que conviene sincronizar a menudo
+  para ir acumulando. No se hace scraping de artículos.
+- En el **dashboard**, cada hallazgo muestra sus informes y writeups similares.
+- En `bbhunter enrich`, los títulos y bounties de informes similares se pasan a Claude **solo para
+  calibrar el impacto**, marcados como datos de terceros (`references.in_llm_prompt: false` lo desactiva).
+
 ## Flujo de trabajo recomendado
 
 1. `bbhunter run` sobre un scope autorizado.

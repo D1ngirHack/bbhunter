@@ -34,6 +34,10 @@ classes:
       - "Confirmar que el recurso carga sin autenticación desde una IP/sesión limpia."
       - "Verificar que el contenido es realmente sensible (no un placeholder)."
       - "Guardar la URL exacta y la respuesta como evidencia (sin exfiltrar datos de más)."
+    # Búsqueda de informes divulgados (HackerOne) y writeups (Medium) relacionados.
+    refs:
+      hackerone_types: ["Information Disclosure", "Misconfiguration", "Cleartext Storage", "Insecure Storage of Sensitive"]
+      keywords: [".env", ".git", "exposed", "leak", "backup", "directory listing", "information-disclosure"]
 
   # ---------- CLASE B: Reflected XSS ----------
   xss_reflected:
@@ -63,6 +67,9 @@ classes:
       - "Confirmar que el payload NO queda codificado/escapado en la respuesta."
       - "Identificar el parámetro exacto y el contexto de reflexión."
       - "Capturar screenshot del popup/ejecución como PoC."
+    refs:
+      hackerone_types: ["Cross-site Scripting (XSS) - Reflected", "Cross-site Scripting (XSS) - Generic"]
+      keywords: ["reflected xss", "xss"]
 
   # ---------- Fallback genérico ----------
   generic:
