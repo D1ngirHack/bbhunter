@@ -15,6 +15,9 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# Renderizados temporales de verificacion de la guia PDF
+tmp/pdfs/
+
 # Secretos
 .env
 *.key
@@ -24,3 +27,6 @@ venv/
 desktop.ini
 .idea/
 .vscode/
+
+# Salida del generador de la guia (la copia versionada es GUIA_BBHunter.pdf en la raiz)
+output/

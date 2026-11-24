@@ -1,5 +1,24 @@
 # 🛡️ BBHunter
 
+**Guía detallada:** [abrir el PDF](GUIA_BBHunter.pdf) ·
+[fuente editable](docs/GUIA_BBHunter.md) ·
+[plantilla de informe](docs/plantilla_informe.md).
+
+La guía incluye instalación en Kali/WSL, configuración de scope frente a URL,
+simulación, laboratorio local, enumeración, validación con Burp/curl, uso acotado
+de herramientas, informe de ejemplo y revisión de los 35 ficheros originales.
+
+**Limitaciones verificadas de esta versión:** el scope solo comprueba el host
+(no rutas ni puertos) y el wildcard incluye el dominio raíz. No uses el pipeline
+para permisos limitados a rutas o puertos. La guía explica el recorrido manual
+para esos casos.
+
+**Bloqueos de política:** `allow_automated_tools: false` bloquea `recon`, `scan` y
+`run`; `allow_active_scan: false` bloquea `scan`/`run` y deja `recon` en modo pasivo
+(sin httpx). Ninguno se salta con `--yes`. `dry_run` sigue disponible.
+
+Empieza con `dry_run: true`, `llm_enabled: false` y una base separada para la demo.
+
 Asistente **semi-automático** de bug bounty para **Kali Linux**. A partir del *scope*
 de un programa autorizado: enumera activos, escanea vulnerabilidades, las clasifica por
 severidad (CVSS v3.1 + tier VRT P1–P5), redacta la explicación / pasos de reproducción /
@@ -9,11 +28,12 @@ impacto / remediación (con **Claude**) y genera **informes profesionales** list
 > ## ⚠️ Lee esto antes de nada
 > - **Solo pruebas autorizadas.** Escanear sistemas sin permiso explícito es ilegal. Usa
 >   BBHunter únicamente dentro del scope de un programa de bug bounty o con autorización escrita.
-> - **No envía reportes automáticamente, y es a propósito.** HackerOne, Bugcrowd y YesWeHack
->   **prohíben el escaneo no autorizado y banean el envío automático de reportes sin validar**
->   ("beg bounty"/spam). El flujo correcto —y el único que cobra— incluye **validación humana**.
-> - **Muchos programas prohíben herramientas automáticas.** Confírmalo en la política del
->   programa (`allow_automated_tools` en el scope) antes de lanzar nada.
+> - **El envío es manual.** Reproduce y revisa cada caso antes de enviarlo por el
+>   canal oficial del programa. La aceptación y cualquier recompensa dependen de
+>   sus condiciones y de la evaluación del equipo.
+> - **Comprueba qué automatización permite el programa.** La configuración local
+>   no sustituye su política: refleja sus reglas en `allow_automated_tools` y
+>   `allow_active_scan`, que BBHunter aplica como bloqueo.
 
 ---
 
@@ -34,7 +54,7 @@ Edita:
 
 ```bash
 bbhunter scope-check https://www.ejemplo.com   # ¿está en scope?
-bbhunter run                                   # pipeline completo (recon→scan→enrich→report)
+bbhunter run                                   # primero en simulación; revisa límites antes de uso real
 bbhunter dashboard                             # panel web local en http://127.0.0.1:8000
 ```
 
@@ -77,7 +97,7 @@ bbhunter refs finding 3               # informes/writeups parecidos al hallazgo 
 
 ## Flujo de trabajo recomendado
 
-1. `bbhunter run` sobre un scope autorizado.
+1. Revisa política y límites de esta versión; practica primero con la simulación de la guía.
 2. En el dashboard, **valida** cada hallazgo (descarta falsos positivos: es lo que más banea).
 3. Reproduce manualmente el PoC y añade capturas de pantalla al informe.
 4. Marca el hallazgo como `ready`, exporta el informe y **envíalo tú** desde la plataforma.
@@ -94,12 +114,16 @@ bbhunter refs finding 3               # informes/writeups parecidos al hallazgo 
 
 ## Probar sin objetivo real (modo simulación)
 
-Pon `dry_run: true` en `config/settings.yaml` o despliega un laboratorio **legal**
-(OWASP Juice Shop / DVWA) en local y apunta el scope a `localhost`. En `dry_run` el
-pipeline genera hallazgos de ejemplo para validar informes y dashboard sin tocar nada.
+Pon `dry_run: true` y `llm_enabled: false` en `config/settings.yaml`, y elige una
+base/directorio de salida exclusivos para la demo. `dry_run` evita el recon y
+escaneo real, pero no deshabilita por sí solo la API de redacción ni `refs sync`.
+No envíes sus hallazgos de ejemplo. El capítulo 07 de la guía contiene la
+configuración completa y el 09 un laboratorio local con Burp/curl.
 
 ```bash
-docker run --rm -p 3000:3000 bkimminich/juice-shop   # laboratorio legal
+docker run --rm -p 127.0.0.1:3000:3000 bkimminich/juice-shop
+# Abre http://127.0.0.1:3000 con navegador/curl.
+# El recon del pipeline no selecciona automáticamente ese puerto.
 ```
 
 ## Tests
@@ -132,3 +156,14 @@ El resto de hallazgos de nuclei se listan y puntúan, pero su redacción es más
 Sin envío automático a plataformas · sin escaneo masivo/distribuido · sin explotación
 agresiva más allá del PoC de validación. Por diseño: la responsabilidad legal y la
 validación son tuyas.
+
+## Regenerar la guía
+
+```bash
+python -m pip install reportlab
+python scripts/build_guide.py
+```
+
+Genera `output/pdf/GUIA_BBHunter.pdf` y actualiza la copia de la raíz. No ejecuta
+escáneres. La exportación de informes de hallazgos con `bbhunter report --pdf`
+es independiente y usa WeasyPrint.
