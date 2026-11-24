@@ -46,7 +46,8 @@ BBHunter 0.1.0 es un asistente de reconocimiento web, almacenamiento de candidat
 ## Otras diferencias con una herramienta completa
 
 - Naabu se instala y aparece en la configuración, pero el pipeline no lo ejecuta.
-- No hay configuración implementada de cookies, cabeceras de identificación, proxy, rutas permitidas o allowlist de plantillas para los escáneres del pipeline.
+- Sí hay cabeceras de identificación por programa (`request_headers` en el scope) y proxy opcional (`proxy` en settings) para httpx, Nuclei y Dalfox. No hay cookies/sesiones, rutas permitidas ni allowlist de plantillas para los escáneres del pipeline.
+- Cada ejecución de herramienta queda en `data/audit.jsonl` (`bbhunter audit`) y los fallos se muestran como «FALLO» y «RESULTADO INCOMPLETO» en vez de pasar por cero hallazgos.
 - El panel no permite editar los textos ni adjuntar capturas. Debes completar el informe en un editor y adjuntar evidencia en la plataforma.
 - `report` puede generar documentos de hallazgos `new`; exportar no equivale a validar.
 - El pipeline no descubre vulnerabilidades de autorización, autenticación o lógica de negocio de manera sistemática.
@@ -928,7 +929,7 @@ Los textos curados cubren principalmente exposiciones y XSS reflejado. Las demá
 
 ## Activar Anthropic si está permitido
 
-La IA es opcional. `llm.py` envía nombre, URL, parámetro, severidad, hasta 3.000 caracteres de evidencia y, si está habilitado, referencias similares. No redacta automáticamente los secretos antes de enviarlos. Actívala únicamente si la política permite usar ese servicio y la evidencia es adecuada para compartir con él.
+La IA es opcional. `llm.py` envía nombre, URL, parámetro, severidad, hasta 3.000 caracteres de evidencia y, si está habilitado, referencias similares. La evidencia se envía con los secretos enmascarados (contraseñas, claves, tokens, cookies, claves privadas), y con `llm_evidence: "none"` no se envía nada del objetivo. El enmascarado es por patrones: no detecta datos personales ni secretos con formatos no previstos. Actívala únicamente si la política permite usar ese servicio.
 
 Configura `llm_enabled: true` y el ID de modelo disponible en tu cuenta según la documentación oficial [S17]. La variable de entorno tiene prioridad sobre el YAML. Para no escribir la clave en el historial Bash:
 
@@ -1107,7 +1108,7 @@ PY
 |---|---|
 | «EN SCOPE» pero otra ruta no está permitida | El matcher solo mira host. Utiliza límites manuales de ruta/puerto y no el pipeline. |
 | «Hosts vivos» sin respuesta verificable | Comprueba si falta httpx y si el activo tiene source `no-httpx` o `dry_run`. |
-| Escaneo sin hallazgos | Revisa alcance, conectividad, autenticación, URLs de entrada y errores de herramientas. Ausencia de resultados no acredita seguridad. |
+| Escaneo sin hallazgos | Ejecuta `bbhunter audit --failed`: si alguna herramienta falló o se omitió, el resultado está incompleto. Revisa también alcance, conectividad, autenticación y URLs de entrada. Ausencia de resultados no acredita seguridad. |
 | Dalfox no aporta nada | Puede no haber URLs con query, fallar la interfaz/formato o no existir XSS. Revisa la URL exacta manualmente. |
 | Hay hallazgos de ejemplo en real | Cambia a una base nueva y revisa qué activos venían de simulación; no los envíes. |
 | Un resultado nuevo se considera duplicado | La clave local normaliza host/path y elimina query, esquema y puerto. Revisa manualmente; no elimina duplicados entre todas las plantillas ni refleja los del programa. |
@@ -1164,6 +1165,7 @@ bbhunter init                     # crear configuracion local
 bbhunter scope-check URL          # solo compara el hostname
 bbhunter recon                    # pasivo + sondeo HTTP (solo pasivo si allow_active_scan: false)
 bbhunter scan                     # candidatos desde SQLite
+bbhunter audit --failed           # fallos u omisiones: resultado incompleto
 bbhunter list --status new        # candidatos por revisar
 bbhunter enrich --id 3            # borrador local o API
 bbhunter dashboard                # triaje local, sin editor
@@ -1232,14 +1234,14 @@ Se revisaron los **35 ficheros versionados originales**, además de la estructur
 | `bbhunter/cli.py` | Define los comandos documentados. No acepta URL en run ni opciones globales de scope/config. Comprueba las reglas `allow_*` antes de la confirmación y bloquea las fases prohibidas (salida 2). Las operaciones por ID no verifican siempre pertenencia al programa activo. |
 | `bbhunter/config.py` | Carga settings y rutas desde ROOT, prioriza variable de API. Usa ejemplos como fallback. No valida límites positivos ni expande variables en los paths de herramientas. |
 | `bbhunter/scope.py` | Filtra host con exclusiones prioritarias. Wildcard incluye apex; no controla ruta, puerto o esquema. El mínimo de tasa es 1. |
-| `bbhunter/tools.py` | Ejecuta binarios sin shell y con timeout. Procesa JSONL y omite líneas no válidas; los errores deben examinarse para no confundirlos con ausencia de hallazgos. |
+| `bbhunter/tools.py` | Ejecuta binarios sin shell y con timeout. Procesa JSONL y omite líneas no válidas. `traffic_args()` añade cabeceras del programa y proxy a httpx, Nuclei y Dalfox (no a subfinder, que no contacta con el objetivo). |
 | `bbhunter/recon.py` | Deriva semillas, enumera y hace HTTP. Filtra host, pero no aplica prohibición de automatización/sondeo. Sin httpx supone HTTPS; no recoge sistemáticamente endpoints con parámetros. |
-| `bbhunter/scan.py` | Ejecuta Nuclei y Dalfox, clasifica y guarda candidatos. Solo Nuclei consulta allow_active_scan; no hay allowlist de plantillas, control central de callbacks o propagación completa de errores. Dalfox solicita JSON y usa parser JSONL. |
+| `bbhunter/scan.py` | Ejecuta Nuclei y Dalfox, clasifica y guarda candidatos. Respeta `allow_*`, registra cada ejecución y avisa si una herramienta falla; enmascara secretos en la evidencia antes de guardarla. No hay allowlist de plantillas ni control central de callbacks. Dalfox solicita JSON y usa parser JSONL. |
 | `bbhunter/db.py` | Persiste assets/findings y carga esquema refs en SQLite. Conserva datos entre sesiones; no cifra evidencia ni separa automáticamente demo de real. Consultas por ID no aplican filtro de programa. |
 | `bbhunter/findings.py` | Deduplica con una clave corta de programa, clase, plantilla, host/path y parámetro. Omite esquema, puerto y query; convierte también path y parámetro a minúsculas. Puede unir casos distintos o separar una misma causa por plantilla. |
 | `bbhunter/knowledge.py` | Clasifica etiquetas y calcula CVSS v3.1 desde vectores de la KB. La clase se asigna por heurística; fallo de cálculo devuelve 0.0. No confirma impacto real. |
 | `bbhunter/enrich.py` | Rellena cuatro campos con plantillas o API. Omite los ya redactados salvo force. No conserva de forma completa la procedencia devuelta por el LLM. El ID explícito no verifica programa. |
-| `bbhunter/llm.py` | Construye prompt, trunca evidencia a 3.000 caracteres y usa fallback ante errores. No elimina secretos ni garantiza precisión; su texto se revisa siempre. |
+| `bbhunter/llm.py` | Construye prompt, trunca evidencia a 3.000 caracteres y usa fallback ante errores. Enmascara la evidencia antes de enviarla (o la omite con `llm_evidence: none`) y la marca como datos no confiables. No garantiza precisión; su texto se revisa siempre. |
 | `bbhunter/report.py` | Genera MD/HTML y PDF opcional. Exporta también no validados. El ID explícito prevalece sobre status/programa. Activa el autoescape para las plantillas HTML (incluida `report_html.j2`) y registra el filtro `nl2br`, que escapa antes de insertar saltos de línea. |
 | `bbhunter/references.py` | Descarga dataset/RSS con límite de tamaño, filtra enlaces HTTPS y busca referencias. Medium admite dominios HTTPS externos; no garantiza confianza editorial. La disponibilidad de los feeds requiere cautela. |
 
@@ -1260,7 +1262,7 @@ Se revisaron los **35 ficheros versionados originales**, además de la estructur
 | Fichero | Función y conclusión de revisión |
 |---|---|
 | `config/scope.example.yaml` | Ejemplo, no permiso real. Sus booleanos iniciales true requieren revisión; las notas de política no se ejecutan. |
-| `config/settings.example.yaml` | Modelos, herramientas, límites, referencias y rutas. No hay cookies, proxy ni cabeceras de escaneo implementadas. La IA es opcional. |
+| `config/settings.example.yaml` | Modelos, herramientas, límites, referencias y rutas. Incluye `audit_log`, `proxy`, `redact_evidence` y `llm_evidence`. No hay cookies de sesión para escáneres. La IA es opcional. |
 | `knowledge/vuln_kb.yaml` | Dos clases curadas y fallback. Los impactos son textos genéricos que deben ajustarse a la evidencia; no probar ni prometer robo de cookies/toma de cuenta por defecto. |
 | `knowledge/vrt_mapping.yaml` | Bandas CVSS, aproximación P1-P5 y pagos ilustrativos. No representa por completo VRT ni tablas de programas. |
 | `scripts/install_tools.sh` | Instala Go tools con latest, actualiza plantillas y crea venv con extra pdf. PATH no persiste fuera del script; falta preparar libpcap-dev en algunos entornos. |
@@ -1296,7 +1298,7 @@ Coinciden con los ejemplos definidos por el código y carecen de validación rea
 ## Qué se comprobó en esta revisión
 
 1. Lectura del código propio, tests, YAML, scripts, plantillas y documentación versionada; lectura de salidas de ejemplo y metadatos locales.
-2. Ejecución de `python -m pytest -q` en la venv Windows existente: **31 pruebas superadas**, incluidas las seis de `tests/test_gates.py`. No requieren escanear objetivos.
+2. Ejecución de `python -m pytest -q` en la venv Windows existente: **49 pruebas superadas**, incluidas las de `tests/test_gates.py` y `tests/test_essentials.py`. No requieren escanear objetivos.
 3. Comprobaciones adicionales en memoria: wildcard incluye apex, y una URL con otro path o puerto sigue siendo aceptada por el matcher del host.
 4. Simulación con mocks de herramientas: en la revisión inicial httpx y Dalfox se llamaban aunque ambos permisos estuvieran en false. Tras la corrección no se llama a ninguna herramienta con `allow_automated_tools: false`, y con `allow_active_scan: false` solo se llama a subfinder (`test_gates.py`). No se ejecutaron binarios reales ni se contactó con objetivos.
 5. Renderizado HTML en memoria con un marcador `<script>`: en la revisión inicial la cadena quedaba sin escapar. Tras la corrección se escapa, y `test_gates.py` lo comprueba.
@@ -1311,10 +1313,10 @@ La instalación completa en Kali, el comportamiento de versiones futuras de esc�
 | Prioridad | Cambio que haría falta implementar y probar |
 |---|---|
 | Antes de probar scope por URL | Modelar y exigir esquema, host, puerto, path, exclusiones y política de redirecciones en cada herramienta. |
-| Antes de escaneo restringido por programa | Allowlist de plantillas, control de OAST y cabeceras/proxy, sesiones por objetivo y limitador de tráfico compartido. |
+| Antes de escaneo restringido por programa | Allowlist de plantillas, control de OAST, sesiones por objetivo y limitador de tráfico compartido. |
 | Antes de depender de Dalfox integrado | Alinear versión/comando y JSONL, comprobar esquema de salida, exigir control de permisos y concurrencia. |
 | Para triaje fiable entre programas | Aislar toda operación por ID al programa activo y distinguir con claridad datos de demo, candidatos y validados. |
-| Para exportación y evidencias completas | Registrar fallos de herramientas/procedencia, permitir edición y adjuntos, revisar puntuación específica y deduplicación. |
+| Para exportación y evidencias completas | Permitir edición y adjuntos, revisar puntuación específica y deduplicación. |
 | Para distribución reproducible | Fijar y probar versiones, incluir recursos al empaquetar y verificar instalación limpia en Kali. |
 
 Estas son conclusiones de análisis y trabajo futuro.
@@ -1326,8 +1328,12 @@ Estas son conclusiones de análisis y trabajo futuro.
 | Las reglas `allow_*` solo avisaban. | `Scope.check_phase()` bloquea en `recon`, `scan` y `run`, y también dentro de los módulos, aunque se use `--yes`. `allow_automated_tools: false` bloquea todas las fases con herramientas; `allow_active_scan: false` bloquea el escaneo y deja el recon en pasivo. `dry_run` sigue funcionando porque no contacta con objetivos. |
 | El informe HTML no escapaba la evidencia. | Autoescape activo en `report_html.j2` y filtro `nl2br` seguro. |
 | La «mediana» de bounties tomaba el valor central superior. | Mediana aritmética real. |
+| Un fallo de herramienta se veía como «0 hallazgos». | `audit.py`: cada ejecución se registra con código de salida y error; los fallos se muestran como «FALLO» y la fase como «RESULTADO INCOMPLETO». `bbhunter audit --failed` los lista. |
+| No había registro de actividad. | `data/audit.jsonl`: fecha, fase, herramienta, comando (enmascarado), objetivos, límite de peticiones, código, duración y final del error. |
+| Secretos del objetivo en claro en BD, informes y API. | `redact.py`: se enmascaran al guardar (`redact_evidence`) y otra vez antes de enviar a Claude; `llm_evidence: none` no envía evidencia. |
+| Sin cabeceras de identificación ni proxy. | `request_headers` en el scope y `proxy` en settings, validados contra saltos de línea, para httpx, Nuclei y Dalfox. |
 
-Estos cambios los cubre `tests/test_gates.py` (bloqueos con herramientas simuladas, sin red ni binarios, y escape HTML).
+Estos cambios los cubren `tests/test_gates.py` y `tests/test_essentials.py` (herramientas simuladas, sin red ni binarios).
 
 ## Regenerar esta guía
 

@@ -23,6 +23,11 @@ out_of_scope:
 # Reglas del programa que debemos respetar.
 rules:
   rate_limit_rps: 5          # peticiones por segundo máximas (respeta la política)
-  allow_active_scan: true    # ¿permite escaneo activo de vulnerabilidades?
-  allow_automated_tools: true  # OJO: muchos programas lo prohíben. Confírmalo en la política.
+  allow_active_scan: true    # false => sin scan; recon solo pasivo (sin httpx). Bloqueo real.
+  allow_automated_tools: true  # false => recon/scan/run bloqueados. Confírmalo en la política.
   notes: "Rellena aquí cualquier restricción específica del programa."
+
+# Cabeceras que el programa exige en TODO tu tráfico (las pasa a httpx, nuclei y dalfox).
+# Muchos programas piden identificarte; copia el nombre y formato EXACTOS de su política.
+request_headers: {}
+#  X-Bug-Bounty: "tu-usuario-de-hackerone"

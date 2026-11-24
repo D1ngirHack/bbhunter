@@ -34,6 +34,25 @@ def run(cmd: list[str], timeout: int = 1800, input_text: str | None = None) -> t
         return 124, "", f"timeout tras {timeout}s: {' '.join(cmd)}"
 
 
+# Flags de cabecera y proxy de cada herramienta (por clave, no por ruta del binario).
+_HEADER_FLAG = {"httpx": "-H", "nuclei": "-H", "dalfox": "-H"}
+_PROXY_FLAG = {"httpx": "-http-proxy", "nuclei": "-proxy", "dalfox": "--proxy"}
+
+
+def traffic_args(tool: str, headers: dict[str, str], proxy: str = "") -> list[str]:
+    """Argumentos para que una herramienta que toca el objetivo envie las cabeceras
+    del programa y, opcionalmente, pase por un proxy (Burp). subfinder no los usa:
+    consulta fuentes pasivas de terceros, no el objetivo."""
+    args: list[str] = []
+    flag = _HEADER_FLAG.get(tool)
+    if flag:
+        for name, value in headers.items():
+            args += [flag, f"{name}: {value}"]
+    if proxy and tool in _PROXY_FLAG:
+        args += [_PROXY_FLAG[tool], proxy]
+    return args
+
+
 def lines(text: str) -> list[str]:
     return [ln for ln in (text or "").splitlines() if ln.strip()]
 

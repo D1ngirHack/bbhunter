@@ -17,6 +17,15 @@ para esos casos.
 `run`; `allow_active_scan: false` bloquea `scan`/`run` y deja `recon` en modo pasivo
 (sin httpx). Ninguno se salta con `--yes`. `dry_run` sigue disponible.
 
+**Uso responsable en programas reales:**
+- **Cabeceras del programa:** `request_headers` en `scope.yaml` (p. ej. `X-Bug-Bounty: usuario`)
+  se envían con httpx, nuclei y dalfox. **Proxy** opcional (`proxy` en `settings.yaml`, p. ej. Burp).
+- **Auditoría:** cada ejecución de herramienta queda en `data/audit.jsonl`
+  (`bbhunter audit`, `bbhunter audit --failed`). Si una herramienta falla verás
+  **FALLO** / **RESULTADO INCOMPLETO**, nunca un "0 hallazgos" engañoso.
+- **Secretos:** la evidencia se guarda con contraseñas, claves y tokens enmascarados
+  (`redact_evidence`) y a Claude solo llega enmascarada, o nada con `llm_evidence: "none"`.
+
 Empieza con `dry_run: true`, `llm_enabled: false` y una base separada para la demo.
 
 Asistente **semi-automático** de bug bounty para **Kali Linux**. A partir del *scope*

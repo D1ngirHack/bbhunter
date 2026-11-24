@@ -2,26 +2,41 @@
 
 Todo se ejecuta SOLO contra assets in-scope y respetando el rate limit. Cada
 hallazgo se clasifica, se puntua (CVSS/VRT) y se deduplica antes de guardarse.
+
+- El trafico lleva las cabeceras del programa (scope.request_headers) y, si se
+  configura, pasa por settings.proxy (p.ej. Burp).
+- Cada ejecucion queda en el registro de auditoria y los fallos se notifican.
+- La evidencia se guarda con los secretos enmascarados (settings.redact_evidence).
 """
 from __future__ import annotations
 
 from rich.console import Console
 
 from . import knowledge, tools
+from .audit import Auditor
 from .config import Settings
 from .db import DB
 from .findings import dedup_hash
+from .redact import redact_obj
 from .scope import Scope
 
 console = Console()
 
 
-def _store(db: DB, scope: Scope, vuln_class: str, name: str, template_id: str,
-           url: str, param: str, evidence: dict) -> bool:
+def _auditor(scope: Scope, settings: Settings) -> Auditor:
+    return Auditor(settings.abs_audit_path(), scope.program)
+
+
+def _store(db: DB, scope: Scope, settings: Settings, vuln_class: str, name: str,
+           template_id: str, url: str, param: str, evidence: dict) -> bool:
+    if settings.redact_evidence:
+        evidence, n = redact_obj(evidence)
+        if n:
+            evidence["_redacted_secrets"] = n
     spec = knowledge.kb_for(vuln_class)
     grade = knowledge.grade(spec["default_cvss_vector"])
     h = dedup_hash(scope.program, vuln_class, template_id, url, param)
-    inserted = db.insert_finding(
+    return db.insert_finding(
         scope.program, h,
         vuln_class=vuln_class,
         name=name,
@@ -36,10 +51,9 @@ def _store(db: DB, scope: Scope, vuln_class: str, name: str, template_id: str,
         refs=spec.get("references", []),
         status="new",
     )
-    return inserted
 
 
-def _dry_run_findings(db: DB, scope: Scope, urls: list[str]) -> int:
+def _dry_run_findings(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
     """Genera hallazgos de ejemplo para probar el pipeline sin herramientas."""
     if not urls:
         return 0
@@ -61,29 +75,38 @@ def _dry_run_findings(db: DB, scope: Scope, urls: list[str]) -> int:
           "response": "...<div>Resultados para <script>alert(document.domain)</script></div>..."}),
     ]
     for vuln_class, name, tid, url, param, ev in samples:
-        if _store(db, scope, vuln_class, name, tid, url, param, ev):
+        if _store(db, scope, settings, vuln_class, name, tid, url, param, ev):
             n += 1
     return n
 
 
-def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
+def _active_allowed(scope: Scope) -> bool:
+    return scope.rules.allow_active_scan and scope.rules.allow_automated_tools
+
+
+def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str],
+               aud: Auditor | None = None) -> int:
+    aud = aud or _auditor(scope, settings)
     if not tools.tool_available(settings.tools.nuclei):
         console.print("[yellow]nuclei no disponible: se omite el escaneo nuclei.[/yellow]")
+        aud.skip("nuclei", phase="scan", reason="binario no encontrado")
         return 0
-    if not scope.rules.allow_active_scan or not scope.rules.allow_automated_tools:
+    if not _active_allowed(scope):
         console.print("[red]El scope no permite escaneo activo: se omite nuclei.[/red]")
+        aud.skip("nuclei", phase="scan", reason="politica del scope")
         return 0
     rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
-    stdin = "\n".join(urls)
     cmd = [
         settings.tools.nuclei, "-silent", "-jsonl",
         "-rate-limit", str(rps),
         "-concurrency", str(settings.limits.nuclei_concurrency),
         "-severity", "low,medium,high,critical",
+        *tools.traffic_args("nuclei", scope.request_headers, settings.proxy),
     ]
-    code, out, err = tools.run(cmd, timeout=3600, input_text=stdin)
+    res = aud.run("nuclei", cmd, phase="scan", targets=urls, rate_limit=rps,
+                  timeout=3600, input_text="\n".join(urls))
     n = 0
-    for obj in tools.iter_jsonl(out):
+    for obj in tools.iter_jsonl(res.stdout):
         info = obj.get("info", {})
         tags = info.get("tags", [])
         name = info.get("name", obj.get("template-id", "hallazgo"))
@@ -99,16 +122,20 @@ def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int
             "request": obj.get("request", ""),
             "response": (obj.get("response", "") or "")[:4000],
         }
-        if _store(db, scope, vuln_class, name, template_id, url, "", evidence):
+        if _store(db, scope, settings, vuln_class, name, template_id, url, "", evidence):
             n += 1
     return n
 
 
-def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
+def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str],
+               aud: Auditor | None = None) -> int:
+    aud = aud or _auditor(scope, settings)
     if not tools.tool_available(settings.tools.dalfox):
+        aud.skip("dalfox", phase="scan", reason="binario no encontrado")
         return 0
-    if not scope.rules.allow_active_scan or not scope.rules.allow_automated_tools:
+    if not _active_allowed(scope):
         console.print("[red]El scope no permite escaneo activo: se omite dalfox.[/red]")
+        aud.skip("dalfox", phase="scan", reason="politica del scope")
         return 0
     # Solo URLs con parametros son candidatas a XSS reflejado.
     candidates = [u for u in urls if "?" in u and scope.is_allowed(u)]
@@ -118,13 +145,14 @@ def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int
     rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
     for url in candidates:
         cmd = [settings.tools.dalfox, "url", url, "--silence", "--format", "json",
-               "--delay", str(int(1000 / max(1, rps)))]
-        code, out, _ = tools.run(cmd, timeout=600)
-        for obj in tools.iter_jsonl(out):
+               "--delay", str(int(1000 / max(1, rps))),
+               *tools.traffic_args("dalfox", scope.request_headers, settings.proxy)]
+        res = aud.run("dalfox", cmd, phase="scan", targets=[url], rate_limit=rps, timeout=600)
+        for obj in tools.iter_jsonl(res.stdout):
             param = obj.get("param", "")
             evidence = {"payload": obj.get("data", ""), "cwe": obj.get("cwe", ""),
                         "request": obj.get("message_str", "")}
-            if _store(db, scope, "xss_reflected", "Reflected XSS (dalfox)",
+            if _store(db, scope, settings, "xss_reflected", "Reflected XSS (dalfox)",
                       "dalfox", url, param, evidence):
                 n += 1
     return n
@@ -145,9 +173,13 @@ def run_scan(scope: Scope, settings: Settings, db: DB) -> int:
     console.print(f"[bold]Escaneo[/bold] sobre [green]{len(urls)}[/green] assets in-scope")
     total = 0
     if settings.dry_run:
-        total += _dry_run_findings(db, scope, urls)
-    else:
-        total += run_nuclei(db, scope, settings, urls)
-        total += run_dalfox(db, scope, settings, urls)
-    console.print(f"  Nuevos hallazgos (sin duplicados): [green]{total}[/green]")
+        total += _dry_run_findings(db, scope, settings, urls)
+        console.print(f"  Nuevos hallazgos (sin duplicados): [green]{total}[/green]")
+        return total
+    aud = _auditor(scope, settings)
+    total += run_nuclei(db, scope, settings, urls, aud)
+    total += run_dalfox(db, scope, settings, urls, aud)
+    complete = aud.summary("scan")
+    label = "" if complete else " [bold red](INCOMPLETO)[/bold red]"
+    console.print(f"  Nuevos hallazgos (sin duplicados): [green]{total}[/green]{label}")
     return total

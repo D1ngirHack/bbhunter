@@ -9,11 +9,12 @@ Scope.is_allowed(). Los tests en tests/test_scope.py lo verifican.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .config import ROOT
 
@@ -36,6 +37,22 @@ class Scope(BaseModel):
     in_scope: list[str] = Field(default_factory=list)
     out_of_scope: list[str] = Field(default_factory=list)
     rules: ScopeRules = Field(default_factory=ScopeRules)
+    # Cabeceras que exige el programa en TODO el trafico (p.ej. X-Bug-Bounty: usuario).
+    # Se pasan a httpx, nuclei y dalfox.
+    request_headers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("request_headers")
+    @classmethod
+    def _check_headers(cls, v: dict[str, str]) -> dict[str, str]:
+        clean = {}
+        for name, value in (v or {}).items():
+            name, value = str(name).strip(), str(value).strip()
+            if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", name):
+                raise ValueError(f"nombre de cabecera invalido: {name!r}")
+            if any(c in value for c in "\r\n\0") or len(value) > 512:
+                raise ValueError(f"valor de cabecera invalido para {name}")
+            clean[name] = value
+        return clean
 
     # ---- normalizacion ----
     @staticmethod

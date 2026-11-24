@@ -43,3 +43,21 @@ references:
 # --- Base de datos y salidas ---
 db_path: "data/bbhunter.sqlite"
 reports_dir: "reports"
+
+# --- Registro de auditoría ---
+# Una línea JSON por cada ejecución de herramienta: cuándo, fase, comando (con
+# secretos enmascarados), objetivos, límite de peticiones, código de salida y error.
+# Consulta con: bbhunter audit  |  bbhunter audit --failed
+audit_log: "data/audit.jsonl"
+
+# --- Proxy (opcional) ---
+# Todo el tráfico de httpx, nuclei y dalfox pasa por aquí. Ej. Burp: http://127.0.0.1:8080
+proxy: ""
+
+# --- Datos sensibles ---
+# Enmascara secretos (contraseñas, claves, tokens, cookies) en la evidencia antes de
+# guardarla. Se conservan los 4 primeros caracteres para demostrar que es real.
+redact_evidence: true
+# Qué evidencia se envía a la API de Claude: "redacted" (enmascarada) o "none" (nada).
+# Usa "none" si la política del programa prohíbe compartir datos con terceros.
+llm_evidence: "redacted"

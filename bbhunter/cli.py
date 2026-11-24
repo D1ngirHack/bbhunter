@@ -11,6 +11,7 @@ Comandos principales:
   bbhunter list                 Lista hallazgos.
   bbhunter set-status ID EST    Cambia el estado de un hallazgo.
   bbhunter dashboard            Lanza el panel web local.
+  bbhunter audit [--failed]     Registro de auditoria de ejecuciones y fallos.
   bbhunter refs sync|search|finding|stats
                                 Informes divulgados (HackerOne) y writeups (Medium).
 """
@@ -43,7 +44,7 @@ def _ctx():
     return settings, scope, db
 
 
-def _authorization_gate(scope, assume_yes: bool) -> None:
+def _authorization_gate(scope, assume_yes: bool, settings=None) -> None:
     console.print("\n[bold red]AVISO LEGAL[/bold red]")
     console.print(
         "Solo puedes escanear objetivos para los que tengas AUTORIZACION explicita "
@@ -53,6 +54,15 @@ def _authorization_gate(scope, assume_yes: bool) -> None:
     console.print(f"Programa: [cyan]{scope.program}[/cyan] | Plataforma: {scope.platform}")
     console.print(f"Politica: {scope.policy_url or '(no indicada)'}")
     console.print(f"In-scope: {', '.join(scope.in_scope) or '(vacio)'}")
+    if scope.request_headers:
+        hdrs = ", ".join(f"{k}: {v}" for k, v in scope.request_headers.items())
+        console.print(f"Cabeceras en todo el trafico: [cyan]{hdrs}[/cyan]")
+    else:
+        console.print("[yellow]Sin cabeceras de identificacion (request_headers). "
+                      "Comprueba si el programa exige alguna.[/yellow]")
+    if settings is not None:
+        console.print(f"Proxy: {settings.proxy or '(ninguno)'} | "
+                      f"Registro de auditoria: {settings.abs_audit_path()}")
     if not scope.rules.allow_automated_tools:
         console.print("[yellow]OJO: el scope marca allow_automated_tools=false. "
                       "Confirma en la politica que puedes usar herramientas automaticas.[/yellow]")
@@ -120,7 +130,7 @@ def scan(yes: bool = typer.Option(False, "--yes", "-y", help="Omitir confirmacio
     """Escaneo de vulnerabilidades sobre los assets in-scope."""
     settings, scope, db = _ctx()
     _check_phases(scope, settings, ("scan",))
-    _authorization_gate(scope, yes)
+    _authorization_gate(scope, yes, settings)
     try:
         scan_mod.run_scan(scope, settings, db)
     except PhaseNotAllowed as exc:
@@ -163,7 +173,7 @@ def run(
     settings, scope, db = _ctx()
     # run necesita recon + scan: si la politica bloquea cualquiera, no empieza nada.
     _check_phases(scope, settings, ("recon", "scan"))
-    _authorization_gate(scope, yes)
+    _authorization_gate(scope, yes, settings)
     try:
         recon_mod.run_recon(scope, settings, db)
         scan_mod.run_scan(scope, settings, db)
@@ -298,6 +308,40 @@ def refs_stats():
     for src, info in st.items():
         console.print(f"{src}: [green]{info['count']}[/green] (ultima sync: {info['last_sync']})")
     db.close()
+
+
+@app.command("audit")
+def audit_log(
+    last: int = typer.Option(20, help="Numero de entradas mas recientes."),
+    failed: bool = typer.Option(False, "--failed", help="Solo fallos y herramientas omitidas."),
+    program: str = typer.Option(None, help="Filtrar por programa (por defecto, el activo)."),
+):
+    """Registro de auditoria: que herramienta se ejecuto, contra que, cuando y con que resultado."""
+    from .audit import read_entries
+
+    settings = load_settings()
+    prog = program or load_scope().program
+    entries = [e for e in read_entries(settings.abs_audit_path(), last=10_000, failed_only=failed)
+               if e.get("program") == prog][-last:]
+    table = Table(title=f"Auditoria — {prog} ({settings.abs_audit_path()})")
+    for col in ("Fecha (UTC)", "Fase", "Herramienta", "Objetivos", "RPS", "Codigo", "Seg", "Detalle"):
+        table.add_column(col, overflow="fold")
+    for e in entries:
+        if e.get("event") == "tool_skipped":
+            table.add_row(e["ts"], e.get("phase", ""), e.get("tool", ""), "", "", "[yellow]omitido[/yellow]",
+                          "", e.get("reason", ""))
+            continue
+        code = str(e.get("exit_code"))
+        code = code if e.get("ok") else f"[red]{code}[/red]"
+        detail = ""
+        if not e.get("ok"):
+            err_lines = (e.get("stderr_tail") or "").strip().splitlines()
+            detail = err_lines[-1][:80] if err_lines else "(sin stderr)"
+        table.add_row(e["ts"], e.get("phase", ""), e.get("tool", ""), str(e.get("targets_count", "")),
+                      str(e.get("rate_limit_rps") or ""), code, str(e.get("duration_s", "")), detail)
+    console.print(table)
+    if not entries:
+        console.print("[dim]Sin entradas.[/dim]")
 
 
 @app.command()
