@@ -28,7 +28,7 @@ from . import report as report_mod
 from . import scan as scan_mod
 from .config import ROOT, load_settings
 from .db import DB
-from .scope import load_scope
+from .scope import PhaseNotAllowed, load_scope
 
 app = typer.Typer(add_completion=False, help="Asistente semi-automatico de bug bounty.")
 console = Console()
@@ -86,21 +86,47 @@ def scope_check(target: str):
     console.print(f"[{color}]{'EN SCOPE' if allowed else 'FUERA DE SCOPE'}[/{color}]: {scope.reason(target)}")
 
 
+def _blocked(exc: PhaseNotAllowed) -> None:
+    console.print(f"[bold red]BLOQUEADO[/bold red] {exc}")
+    raise typer.Exit(code=2)
+
+
+def _check_phases(scope, settings, phases: tuple[str, ...]) -> None:
+    """Comprueba la politica ANTES de pedir confirmacion o lanzar nada."""
+    if settings.dry_run:
+        return
+    try:
+        for phase in phases:
+            scope.check_phase(phase)
+    except PhaseNotAllowed as exc:
+        _blocked(exc)
+
+
 @app.command()
 def recon():
     """Enumeracion de subdominios + deteccion de hosts vivos."""
     settings, scope, db = _ctx()
-    recon_mod.run_recon(scope, settings, db)
-    db.close()
+    _check_phases(scope, settings, ("recon",))
+    try:
+        recon_mod.run_recon(scope, settings, db)
+    except PhaseNotAllowed as exc:
+        _blocked(exc)
+    finally:
+        db.close()
 
 
 @app.command()
 def scan(yes: bool = typer.Option(False, "--yes", "-y", help="Omitir confirmacion de autorizacion.")):
     """Escaneo de vulnerabilidades sobre los assets in-scope."""
     settings, scope, db = _ctx()
+    _check_phases(scope, settings, ("scan",))
     _authorization_gate(scope, yes)
-    scan_mod.run_scan(scope, settings, db)
-    db.close()
+    try:
+        scan_mod.run_scan(scope, settings, db)
+    except PhaseNotAllowed as exc:
+        _blocked(exc)
+    finally:
+        db.close()
 
 
 @app.command()
@@ -135,9 +161,15 @@ def run(
 ):
     """Pipeline completo: recon -> scan -> enrich -> report."""
     settings, scope, db = _ctx()
+    # run necesita recon + scan: si la politica bloquea cualquiera, no empieza nada.
+    _check_phases(scope, settings, ("recon", "scan"))
     _authorization_gate(scope, yes)
-    recon_mod.run_recon(scope, settings, db)
-    scan_mod.run_scan(scope, settings, db)
+    try:
+        recon_mod.run_recon(scope, settings, db)
+        scan_mod.run_scan(scope, settings, db)
+    except PhaseNotAllowed as exc:
+        db.close()
+        _blocked(exc)
     enrich_mod.enrich_findings(scope.program, settings, db, final=final)
     report_mod.generate_reports(scope, settings, db, pdf=pdf)
     console.print("\n[bold green]Pipeline completado.[/bold green] Revisa y VALIDA cada hallazgo "

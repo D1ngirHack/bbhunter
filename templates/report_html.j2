@@ -34,7 +34,7 @@
 </table>
 
 <h2>Resumen</h2>
-<p>{{ f.explanation | replace("\n", "<br>") }}</p>
+<p>{{ f.explanation | nl2br }}</p>
 
 <h2>Pasos para reproducir</h2>
 <pre>{{ f.reproduction }}</pre>
@@ -47,10 +47,10 @@
 <p><em>Adjunta aquí las capturas de pantalla que demuestren la ejecución/acceso.</em></p>
 
 <h2>Impacto</h2>
-<p>{{ f.impact | replace("\n", "<br>") }}</p>
+<p>{{ f.impact | nl2br }}</p>
 
 <h2>Remediación</h2>
-<p>{{ f.remediation | replace("\n", "<br>") }}</p>
+<p>{{ f.remediation | nl2br }}</p>
 
 <h2>Referencias</h2>
 <ul>{% for ref in refs %}<li>{{ ref }}</li>{% endfor %}</ul>

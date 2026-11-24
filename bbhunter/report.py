@@ -6,7 +6,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup, escape
 from rich.console import Console
 
 from . import knowledge
@@ -16,12 +17,26 @@ from .scope import Scope
 
 console = Console()
 
+def _autoescape(template_name: str | None) -> bool:
+    """Escapa toda plantilla HTML (report_html.j2, *.html, *.html.j2). La evidencia
+    viene de respuestas de terceros: sin escape, abrir el informe ejecutaria su HTML/JS."""
+    name = (template_name or "").lower()
+    return name.endswith((".html", ".htm", ".html.j2", "_html.j2"))
+
+
+def _nl2br(value: object) -> Markup:
+    """Escapa el texto y convierte saltos de linea en <br> (seguro con autoescape)."""
+    text = "" if value is None else str(value)
+    return Markup("<br>\n").join(escape(line) for line in text.split("\n"))
+
+
 _env = Environment(
     loader=FileSystemLoader(str(ROOT / "templates")),
-    autoescape=select_autoescape(["html"]),
+    autoescape=_autoescape,
     trim_blocks=False,
     lstrip_blocks=False,
 )
+_env.filters["nl2br"] = _nl2br
 
 
 def _slug(text: str) -> str:

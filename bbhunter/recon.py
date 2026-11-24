@@ -94,9 +94,20 @@ def probe_live(subdomains: list[str], scope: Scope, settings: Settings) -> list[
 
 
 def run_recon(scope: Scope, settings: Settings, db: DB) -> list[dict]:
+    if not settings.dry_run:
+        scope.check_phase("recon")  # lanza PhaseNotAllowed si la politica lo prohibe
     console.print(f"[bold]Recon[/bold] para programa [cyan]{scope.program}[/cyan]")
     subs = enumerate_subdomains(scope, settings)
     console.print(f"  Subdominios en scope: [green]{len(subs)}[/green]")
+    if not scope.rules.allow_active_scan and not settings.dry_run:
+        # Modo pasivo: no se envia ninguna peticion a los hosts. Se guardan como
+        # candidatos sin sondear (source='pasivo-sin-sondeo'); no son "hosts vivos".
+        console.print("  [yellow]allow_active_scan=false: sin sondeo httpx. "
+                      "Los subdominios se guardan como candidatos NO verificados.[/yellow]")
+        for sd in subs:
+            db.upsert_asset(scope.program, url=f"https://{sd}", host=sd,
+                            source="pasivo-sin-sondeo")
+        return []
     live = probe_live(subs, scope, settings)
     console.print(f"  Hosts vivos: [green]{len(live)}[/green]")
     for asset in live:

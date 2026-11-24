@@ -321,7 +321,8 @@ def bounty_summary(rows: list[dict]) -> dict[str, Any]:
     paid = sorted(r["bounty"] for r in rows if (r.get("bounty") or 0) > 0)
     if not paid:
         return {"n": len(rows), "paid": 0}
-    mid = paid[len(paid) // 2]
+    half = len(paid) // 2
+    mid = paid[half] if len(paid) % 2 else (paid[half - 1] + paid[half]) / 2
     return {"n": len(rows), "paid": len(paid), "min": paid[0], "median": mid, "max": paid[-1]}
 
 

@@ -18,6 +18,10 @@ from pydantic import BaseModel, Field
 from .config import ROOT
 
 
+class PhaseNotAllowed(Exception):
+    """La politica del scope prohibe ejecutar esta fase."""
+
+
 class ScopeRules(BaseModel):
     rate_limit_rps: int = 5
     allow_active_scan: bool = True
@@ -84,6 +88,24 @@ class Scope(BaseModel):
         for t in targets:
             (allowed if self.is_allowed(t) else rejected).append(t)
         return allowed, rejected
+
+    def check_phase(self, phase: str) -> None:
+        """Bloqueo duro segun las reglas (no se salta con --yes).
+
+        - allow_automated_tools=false -> ninguna fase con herramientas (recon, scan).
+        - allow_active_scan=false     -> no hay escaneo (nuclei/dalfox); el recon
+          queda en modo pasivo (subfinder sin sondeo httpx).
+        """
+        if not self.rules.allow_automated_tools:
+            raise PhaseNotAllowed(
+                f"'{phase}' bloqueado: el scope tiene allow_automated_tools=false. "
+                "Trabaja manualmente segun la politica del programa."
+            )
+        if phase == "scan" and not self.rules.allow_active_scan:
+            raise PhaseNotAllowed(
+                "'scan' bloqueado: el scope tiene allow_active_scan=false. "
+                "Solo puedes hacer recon pasivo y pruebas manuales permitidas."
+            )
 
     def effective_rate_limit(self, global_cap: int) -> int:
         return max(1, min(self.rules.rate_limit_rps, global_cap))

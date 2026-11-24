@@ -70,7 +70,7 @@ def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int
     if not tools.tool_available(settings.tools.nuclei):
         console.print("[yellow]nuclei no disponible: se omite el escaneo nuclei.[/yellow]")
         return 0
-    if not scope.rules.allow_active_scan:
+    if not scope.rules.allow_active_scan or not scope.rules.allow_automated_tools:
         console.print("[red]El scope no permite escaneo activo: se omite nuclei.[/red]")
         return 0
     rps = scope.effective_rate_limit(settings.limits.global_rate_limit_rps)
@@ -107,6 +107,9 @@ def run_nuclei(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int
 def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int:
     if not tools.tool_available(settings.tools.dalfox):
         return 0
+    if not scope.rules.allow_active_scan or not scope.rules.allow_automated_tools:
+        console.print("[red]El scope no permite escaneo activo: se omite dalfox.[/red]")
+        return 0
     # Solo URLs con parametros son candidatas a XSS reflejado.
     candidates = [u for u in urls if "?" in u and scope.is_allowed(u)]
     if not candidates:
@@ -128,6 +131,8 @@ def run_dalfox(db: DB, scope: Scope, settings: Settings, urls: list[str]) -> int
 
 
 def run_scan(scope: Scope, settings: Settings, db: DB) -> int:
+    if not settings.dry_run:
+        scope.check_phase("scan")  # lanza PhaseNotAllowed si la politica lo prohibe
     urls = db.live_urls(scope.program)
     if not urls:
         console.print("[yellow]No hay assets. Ejecuta primero el recon.[/yellow]")
